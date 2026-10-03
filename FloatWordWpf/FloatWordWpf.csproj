@@ -8,6 +8,8 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>FloatWord</AssemblyName>
     <RootNamespace>FloatWordWpf</RootNamespace>
+    <!-- 版本号：同时决定程序集版本、文件版本，以及「右键 exe → 属性 → 详细信息」里显示的版本 -->
+    <Version>1.0.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- 应用图标：exe 的文件图标 / 任务栏图标 -->
     <ApplicationIcon>Assets\floatword.ico</ApplicationIcon>
