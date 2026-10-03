@@ -97,21 +97,14 @@
                                FontSize="12"
                                Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
 
-                    <!-- 释义：按词性分行显示，MaxWidth 由代码按屏幕宽度设置 -->
-                    <TextBlock x:Name="Mean" HorizontalAlignment="Center" Margin="0,6,0,0"
-                               FontFamily="Segoe UI Variable Text, Segoe UI"
-                               FontSize="14"
-                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                               TextWrapping="Wrap" TextAlignment="Center" />
+                    <!-- 释义：按词性分行显示，MaxWidth 由代码按屏幕宽度设置；用支持描边的控件 -->
+                    <local:OutlinedText x:Name="Mean" HorizontalAlignment="Center" Margin="0,6,0,0" />
 
                     <!-- 单词：逐字绘制 + 几何描边 -->
                     <local:WordCanvas x:Name="Word" HorizontalAlignment="Center" Margin="0,6,0,0" />
 
-                    <!-- 音标：Caption 级 -->
-                    <TextBlock x:Name="Phon" HorizontalAlignment="Center" Margin="0,4,0,0"
-                               FontFamily="Segoe UI Variable Text, Segoe UI"
-                               FontSize="12"
-                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                    <!-- 音标：独立字号与描边 -->
+                    <local:OutlinedText x:Name="Phon" HorizontalAlignment="Center" Margin="0,4,0,0" />
 
                     <!-- 反馈：Caption 级 -->
                     <TextBlock x:Name="Feedback" HorizontalAlignment="Center" Margin="0,2,0,0"

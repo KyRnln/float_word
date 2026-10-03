@@ -33,6 +33,9 @@ public sealed class SettingsWindow : FluentWindow
     private readonly List<Action> _progressRefreshers = new();
     private ComboBox? _dictCombo;
 
+    /// <summary>当前设置项的写入目标：普通项写 _body，折叠组内写组内的面板。</summary>
+    private Panel _target = null!;
+
     public SettingsWindow(MainWindow main)
     {
         _main = main;
@@ -86,6 +89,7 @@ public sealed class SettingsWindow : FluentWindow
 
         Content = root;
 
+        _target = _body;
         Build();
         Loaded += (_, _) => PositionNearMain();
         // 悬浮窗学习时设置窗口可能一直开着，重新聚焦时刷新进度
@@ -126,25 +130,46 @@ public sealed class SettingsWindow : FluentWindow
 
         Section("外观");
 
-        Check("显示词典名称", () => _s.ShowDictName, v => _s.ShowDictName = v);
+        // 单词（逐字绘制的 WordCanvas）
+        Group("单词", () =>
+        {
+            Choice("字体", Theme.FontChoices, () => _s.FontFamily, v => _s.FontFamily = v);
+            SliderRow("字号", 14, 72, () => _s.FontSize, v => _s.FontSize = v);
+            Check("加粗", () => _s.FontBold, v => _s.FontBold = v);
+            ColorRow("文字颜色", Theme.ColorPresets, () => _s.TextColor, v => _s.TextColor = v);
+            SliderRow("描边宽度", 0, 8, () => _s.OutlineW, v => _s.OutlineW = v);
+            ColorRow("描边颜色", Theme.OutlinePresets, () => _s.OutlineColor, v => _s.OutlineColor = v);
+            ColorRow("提示框颜色", Theme.HintPresets, () => _s.HintColor, v => _s.HintColor = v);
+            SliderRow("提示框透明度", 0, 100, () => _s.HintAlpha, v => _s.HintAlpha = v);
+            Note("文字颜色由单词、注释、发音三处共用；提示框是当前待输入字符的高亮块。");
+        });
 
-        SliderRow("背景透明度", 0, 100, () => _s.BgAlpha, v => _s.BgAlpha = v);
-        SliderRow("文字透明度", 0, 100, () => _s.TextAlpha, v => _s.TextAlpha = v);
-        SliderRow("单词字号", 14, 72, () => _s.FontSize, v => _s.FontSize = v);
-        SliderRow("音标字号", 8, 32, () => _s.PhonSize, v => _s.PhonSize = v);
-        SliderRow("释义字号", 8, 36, () => _s.MeanSize, v => _s.MeanSize = v);
-        SliderRow("描边宽度", 0, 8, () => _s.OutlineW, v => _s.OutlineW = v);
+        // 注释（释义）
+        Group("注释", () =>
+        {
+            SliderRow("字号", 8, 36, () => _s.MeanSize, v => _s.MeanSize = v);
+            SliderRow("描边宽度", 0, 8, () => _s.MeanOutlineW, v => _s.MeanOutlineW = v);
+            ColorRow("描边颜色", Theme.OutlinePresets, () => _s.MeanOutlineColor, v => _s.MeanOutlineColor = v);
+        });
 
-        ColorRow("文字颜色", Theme.ColorPresets, () => _s.TextColor, v => _s.TextColor = v);
-        ColorRow("描边颜色", Theme.OutlinePresets, () => _s.OutlineColor, v => _s.OutlineColor = v);
-        ColorRow("提示框颜色", Theme.HintPresets, () => _s.HintColor, v => _s.HintColor = v);
-        SliderRow("提示框透明度", 0, 100, () => _s.HintAlpha, v => _s.HintAlpha = v);
+        // 发音（音标）
+        Group("发音", () =>
+        {
+            SliderRow("字号", 8, 32, () => _s.PhonSize, v => _s.PhonSize = v);
+            SliderRow("描边宽度", 0, 8, () => _s.PhonOutlineW, v => _s.PhonOutlineW = v);
+            ColorRow("描边颜色", Theme.OutlinePresets, () => _s.PhonOutlineColor, v => _s.PhonOutlineColor = v);
+        });
 
-        Choice("字体", Theme.FontChoices, () => _s.FontFamily, v => _s.FontFamily = v);
-        Check("单词加粗", () => _s.FontBold, v => _s.FontBold = v);
-        Check("工具栏常显（否则鼠标移入才显示）", () => _s.ToolbarPinned, v => _s.ToolbarPinned = v);
+        // 其余个性化项
+        Group("其他", () =>
+        {
+            SliderRow("背景透明度", 0, 100, () => _s.BgAlpha, v => _s.BgAlpha = v);
+            SliderRow("文字透明度", 0, 100, () => _s.TextAlpha, v => _s.TextAlpha = v);
+            Check("显示词典名称", () => _s.ShowDictName, v => _s.ShowDictName = v);
+            Check("工具栏常显（否则鼠标移入才显示）", () => _s.ToolbarPinned, v => _s.ToolbarPinned = v);
+        });
 
-        Section("发音（Piper 离线神经语音）");
+        Section("语音播报（Piper 离线神经语音）");
 
         var voices = PiperService.AvailableVoices();
         if (voices.Length == 0)
@@ -166,6 +191,10 @@ public sealed class SettingsWindow : FluentWindow
         Note("提示：鼠标移入悬浮窗显示工具栏；点击窗口后直接在单词上逐字输入；← → 切换单词。");
         Note("WPF 版使用真 per-pixel alpha，半透明背景下文字边缘也不会有毛边，因此不需要「清晰文字」开关。");
         Note($"设置自动保存在 {AppPaths.ConfigFile}");
+
+        // 破坏性操作放到最下方，且必须二次确认
+        Section("重置");
+        ResetRow();
     }
 
     // ---------- 行构造 ----------
@@ -175,7 +204,7 @@ public sealed class SettingsWindow : FluentWindow
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(106) });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        _body.Children.Add(g);
+        _target.Children.Add(g);
         return g;
     }
 
@@ -205,7 +234,68 @@ public sealed class SettingsWindow : FluentWindow
             Margin = new Thickness(0, 18, 0, 8)
         };
         t.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorSecondaryBrush");
-        _body.Children.Add(t);
+        _target.Children.Add(t);
+    }
+
+    /// <summary>
+    /// 折叠分组：标题栏是一个 Fluent 透明按钮，点击展开 / 收起内容。
+    /// （WPF-UI 4.3 没有可直接使用的 Expander 控件，这里自己拼一个，外观与工具栏按钮一致。）
+    /// 分组期间把写入目标切到组内面板，build() 里照常用 SliderRow / ColorRow / Check 即可。
+    /// </summary>
+    private void Group(string title, Action build)
+    {
+        var panel = new StackPanel
+        {
+            Margin = new Thickness(6, 2, 0, 8),
+            Visibility = Visibility.Collapsed
+        };
+
+        var arrow = new TextBlock
+        {
+            Text = "\uE76C",                                        // ChevronRight
+            FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 8, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        arrow.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorSecondaryBrush");
+
+        var caption = new TextBlock
+        {
+            Text = title,
+            FontFamily = TextFont,
+            FontSize = 13,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        caption.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorPrimaryBrush");
+
+        var head = new StackPanel { Orientation = Orientation.Horizontal };
+        head.Children.Add(arrow);
+        head.Children.Add(caption);
+
+        var header = new FluentButton
+        {
+            Content = head,
+            Appearance = ControlAppearance.Transparent,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            Height = 34,
+            Margin = new Thickness(0, 2, 0, 2)
+        };
+        header.Click += (_, _) =>
+        {
+            bool open = panel.Visibility != Visibility.Visible;
+            panel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+            arrow.Text = open ? "\uE70D" : "\uE76C";                // ChevronDown / ChevronRight
+        };
+
+        _target.Children.Add(header);
+        _target.Children.Add(panel);
+
+        var prev = _target;
+        _target = panel;
+        build();
+        _target = prev;
     }
 
     private void Note(string text)
@@ -220,7 +310,7 @@ public sealed class SettingsWindow : FluentWindow
             Margin = new Thickness(0, 10, 0, 0)
         };
         t.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorTertiaryBrush");
-        _body.Children.Add(t);
+        _target.Children.Add(t);
     }
 
     private void SliderRow(string label, double min, double max,
@@ -412,7 +502,7 @@ public sealed class SettingsWindow : FluentWindow
         Directory.CreateDirectory(dir);
         var target = Path.Combine(dir, name + ".json");
 
-        if (File.Exists(target) && !await Confirm($"已存在同名词库「{name}」，是否覆盖？"))
+        if (File.Exists(target) && !await Confirm($"已存在同名词库「{name}」，是否覆盖？", "导入词典", "覆盖"))
             return;
 
         try
@@ -430,7 +520,7 @@ public sealed class SettingsWindow : FluentWindow
         RefreshDictChoices(name);
         _main.ChangeDict(name);
 
-        await Info($"已导入「{name}」，共 {items.Count} 个单词。");
+        await Info($"已导入「{name}」，共 {items.Count} 个单词。", "导入词典");
     }
 
     private void RefreshDictChoices(string? select)
@@ -441,6 +531,46 @@ public sealed class SettingsWindow : FluentWindow
         _dictCombo.SelectedItem = select is not null && names.Contains(select)
             ? select
             : names.FirstOrDefault();
+    }
+
+    // ---------- 清空进度 ----------
+    /// <summary>清空学习进度。破坏性操作，放在设置最下方并要求二次确认。</summary>
+    private void ResetRow()
+    {
+        var g = NewRow();
+        var btn = new FluentButton
+        {
+            Content = "清空学习进度…",
+            Appearance = ControlAppearance.Danger,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            MinWidth = 130,
+            FontFamily = TextFont,
+            FontSize = 13
+        };
+        btn.Click += async (_, _) => await ClearProgressAsync();
+        Grid.SetColumn(btn, 0);
+        Grid.SetColumnSpan(btn, 3);
+        g.Children.Add(btn);
+
+        Note("清空所有词典的学习位置，以及全部单词的复习阶段、连续天数、首次成功、二次成功、已完成记录。外观与发音设置不受影响。");
+    }
+
+    private async Task ClearProgressAsync()
+    {
+        // 二次确认：这是不可撤销的破坏性操作
+        bool ok = await Confirm(
+            "确定要清空全部学习进度吗？\n\n" +
+            "即将删除：\n" +
+            "· 各词典的学习位置（回到第一个单词）\n" +
+            "· 所有单词的复习阶段、连续天数、首次成功、二次成功、已完成记录\n\n" +
+            "此操作无法撤销。",
+            "清空学习进度", "清空");
+
+        if (!ok) return;
+
+        _main.ClearProgress();   // 清数据并把悬浮窗拉回学习模式第一个词
+        RefreshProgress();       // 刷新本页进度条
+        await Info("学习进度已清空，所有单词回到「未学」状态。");
     }
 
     // 用 WPF-UI 的 Fluent 对话框，避免系统原生（白底）弹窗在深色界面里突兀
@@ -455,24 +585,24 @@ public sealed class SettingsWindow : FluentWindow
         await box.ShowDialogAsync();
     }
 
-    private async Task Info(string message)
+    private async Task Info(string message, string title = "提示")
     {
         var box = new Wpf.Ui.Controls.MessageBox
         {
-            Title = "导入词典",
+            Title = title,
             Content = message,
             CloseButtonText = "好的"
         };
         await box.ShowDialogAsync();
     }
 
-    private async Task<bool> Confirm(string message)
+    private async Task<bool> Confirm(string message, string title = "确认", string primary = "确定")
     {
         var box = new Wpf.Ui.Controls.MessageBox
         {
-            Title = "导入词典",
+            Title = title,
             Content = message,
-            PrimaryButtonText = "覆盖",
+            PrimaryButtonText = primary,
             CloseButtonText = "取消"
         };
         var result = await box.ShowDialogAsync();

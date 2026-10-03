@@ -10,6 +10,12 @@ public partial class MainWindow : Window
     /// <summary>学习模式下每学满几个词，就进入一次本组默写。</summary>
     private const int RoundSize = 3;
 
+    /// <summary>本组默写里同一个词连续输错多少次，就亮出答案并打回重新学习。</summary>
+    private const int MaxWrongStreak = 5;
+
+    /// <summary>亮出答案的时长（毫秒）。</summary>
+    private const int AutoHintMs = 3000;
+
     private enum Phase
     {
         /// <summary>学习：显示单词详情，边看边打。</summary>
@@ -34,11 +40,14 @@ public partial class MainWindow : Window
     private Phase _phase = Phase.Study;
     private readonly List<WordItem> _round = new();   // 本组已学的词（用于本组默写）
     private int _roundIndex;
+    private readonly List<WordItem> _relearn = new(); // 本组默写连错 5 次、被退回需重新学习的词
     private readonly List<WordItem> _review = new();  // 复习队列（打乱后）
     private int _reviewIndex;
 
     private bool _busy;
     private bool _ready;
+    private int _wrongStreak;        // 当前词连续输错次数（本组默写用）
+    private bool _autoReveal;        // 连错满 5 次后自动亮出答案中
 
     private bool _hintHeld;          // 提示按钮是否正被按住（按住显示答案）
     private bool _hintUsed;          // 本词是否用过提示（用提示会清零连续天数）
@@ -66,10 +75,11 @@ public partial class MainWindow : Window
     private WordDictionary? Dict =>
         _lib.Count == 0 ? null : _lib[Math.Clamp(_dictIndex, 0, _lib.Count - 1)];
 
-    /// <summary>当前正在练的词表：复习队列 / 本组 / 整本词典。</summary>
+    /// <summary>当前正在练的词表：复习队列 / 本组 / 待重学 / 整本词典。</summary>
     private List<WordItem>? ActiveList =>
         _review.Count > 0 ? _review
         : _phase == Phase.Dictation && _round.Count > 0 ? _round
+        : _relearn.Count > 0 ? _relearn
         : Dict?.Words;
 
     private int ActiveIndex
@@ -78,6 +88,7 @@ public partial class MainWindow : Window
         {
             if (_review.Count > 0) return _reviewIndex;
             if (_phase == Phase.Dictation && _round.Count > 0) return _roundIndex;
+            if (_relearn.Count > 0) return 0;   // 待重学的词一次只呈现一个
             return _index;
         }
     }
@@ -137,13 +148,22 @@ public partial class MainWindow : Window
         Info.Opacity = Mean.Opacity = Phon.Opacity = Feedback.Opacity = Word.Opacity = top;
 
         var textColor = Theme.Brush(_s.TextColor);
-        Mean.Foreground = textColor;
+
+        // 注释（释义）：字号 + 独立描边
+        Mean.TextBrush = textColor;
         Mean.FontSize = _s.MeanSize;
+        Mean.OutlineWidth = _s.MeanOutlineW;
+        Mean.OutlineBrush = Theme.Brush(_s.MeanOutlineColor);
+
+        // 发音（音标）：字号 + 独立描边
+        Phon.TextBrush = textColor;
         Phon.FontSize = _s.PhonSize;
+        Phon.OutlineWidth = _s.PhonOutlineW;
+        Phon.OutlineBrush = Theme.Brush(_s.PhonOutlineColor);
 
         // 释义按词性分行，每行长短差别很大：给一个随屏幕自适应的上限，
         // 既让绝大多数词性行不折行，又不会把窗口撑到屏幕外。
-        Mean.MaxWidth = Math.Clamp(SystemParameters.WorkArea.Width * 0.62, 480, 1400);
+        Mean.TextMaxWidth = Math.Clamp(SystemParameters.WorkArea.Width * 0.62, 480, 1400);
 
         Word.FontFamilyName = _s.FontFamily;
         Word.FontSize = _s.FontSize;
@@ -179,6 +199,7 @@ public partial class MainWindow : Window
         _roundIndex = 0;
         _review.Clear();
         _reviewIndex = 0;
+        _relearn.Clear();
         ResetTyped();
         Render();
         ScheduleSave();
@@ -209,6 +230,7 @@ public partial class MainWindow : Window
         _roundIndex = 0;
         _review.Clear();
         _reviewIndex = 0;
+        _relearn.Clear();
         ResetTyped();
         Render();
     }
@@ -217,6 +239,27 @@ public partial class MainWindow : Window
     {
         _saveTimer.Stop();
         _saveTimer.Start();
+    }
+
+    /// <summary>
+    /// 清空全部学习进度，并把当前会话拉回「学习模式 + 词典第一个词」。
+    /// 复习队列 / 本组默写都会作废，避免清空后残留的旧队列又写回进度。
+    /// </summary>
+    public void ClearProgress()
+    {
+        _s.ClearProgress();
+
+        _round.Clear();
+        _roundIndex = 0;
+        _review.Clear();
+        _reviewIndex = 0;
+        _relearn.Clear();
+        _phase = Phase.Study;
+        _index = 0;
+
+        ResetTyped();
+        Remember();      // 写入新下标并触发保存
+        Render();
     }
 
     // ---------- 渲染 ----------
@@ -236,10 +279,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        // 进度：复习显示队列位置，本组默写显示组内位置，否则显示词典位置
+        // 进度：复习显示队列位置，本组默写显示组内位置，重学显示剩余个数，否则显示词典位置
         string pos;
         if (_review.Count > 0) pos = $"复习 {_reviewIndex + 1}/{_review.Count}";
         else if (_phase == Phase.Dictation && _round.Count > 0) pos = $"本组 {_roundIndex + 1}/{_round.Count}";
+        else if (_relearn.Count > 0) pos = $"重学 {_relearn.Count}";
         else pos = $"{_index + 1}/{Dict!.Words.Count}";
 
         // 词典位置后面跟该词的学习情况：未学 / 学习中 / 连续 N/3 天 / 首次成功 / 二次成功 / 已完成
@@ -256,10 +300,10 @@ public partial class MainWindow : Window
             _ => ("复习", "\uE81C")
         };
 
-        // 学习模式始终显示；复习时按住提示也显示；拼对了也显示
-        bool revealed = _phase == Phase.Study || _hintHeld || _typed >= w.Word.Length;
+        // 学习模式始终显示；按住提示、连错 5 次自动亮答案、或拼对了都显示
+        bool revealed = _phase == Phase.Study || _hintHeld || _autoReveal || _typed >= w.Word.Length;
         Phon.Text = revealed ? w.Phonetic : "";
-        Phon.Foreground = revealed ? Theme.Brush(_s.TextColor) : Theme.Brush(Theme.Muted);
+        Phon.TextBrush = revealed ? Theme.Brush(_s.TextColor) : Theme.Brush(Theme.Muted);
 
         // 默写/复习用等宽槽位排版（占位横线等宽、间距一致）；学习模式按字母真实宽度
         Word.UniformCells = _phase != Phase.Study;
@@ -293,6 +337,8 @@ public partial class MainWindow : Window
         _busy = false;
         _hintUsed = false;
         _hintHeld = false;
+        _wrongStreak = 0;
+        _autoReveal = false;
         Word.Error = false;
     }
 
@@ -398,6 +444,37 @@ public partial class MainWindow : Window
             }
         }
 
+        // 本组默写：连续输错满 5 次 → 亮出答案 3 秒，并把该词移出复习系统、退回重新学习
+        bool gaveUp = false;
+        if (_phase == Phase.Dictation && Dict is not null && Current is { } dw)
+        {
+            _wrongStreak++;
+            if (_wrongStreak >= MaxWrongStreak)
+            {
+                gaveUp = true;
+                _s.RemoveFromReview(Dict.Name, dw.Word);          // 不进入复习队列
+                if (!_relearn.Any(x => x.Word == dw.Word)) _relearn.Add(dw);  // 退回重新学习
+                Feedback.Text = $"✗ 连续错误 {MaxWrongStreak} 次：已显示答案，本词需重新学习";
+            }
+        }
+
+        if (gaveUp)
+        {
+            // 自动亮出答案（相当于自动按住「提示」），3 秒后收回、清空输入重新开始
+            Word.Error = false;
+            _autoReveal = true;
+            Render();
+            await Task.Delay(AutoHintMs);
+            if (!IsLoaded) return;
+
+            _autoReveal = false;
+            _busy = false;
+            _typed = 0;
+            _wrongStreak = 0;   // 提示过之后重新计数
+            Render();
+            return;
+        }
+
         await Task.Delay(450);
         if (!IsLoaded) return;
 
@@ -422,7 +499,7 @@ public partial class MainWindow : Window
             // 默写/复习：先把正确答案亮出来再走
             Word.Reveal = true;
             Phon.Text = c.Phonetic;
-            Phon.Foreground = Theme.Brush(_s.TextColor);
+            Phon.TextBrush = Theme.Brush(_s.TextColor);
         }
 
         // 复习判定：按「是否用过提示 + 连续天数 + 阶段」推进 SRS 状态
@@ -497,6 +574,20 @@ public partial class MainWindow : Window
         // 3) 学习：把词记进本组、记录学习日期、词典下标前进
         if (_phase == Phase.Study && Dict is not null && Current is { } learned)
         {
+            // 待重新学习的词优先：学完一个就退出队列并重新纳入复习系统，词典下标不动
+            if (_relearn.Count > 0)
+            {
+                _relearn.RemoveAt(0);
+                _s.MarkLearned(Dict.Name, learned.Word);
+                ResetTyped();
+                Feedback.Text = _relearn.Count > 0
+                    ? $"重新学习完成，还剩 {_relearn.Count} 个"
+                    : "重新学习完成 ✓";
+                Render();
+                SpeakIfAuto();
+                return;
+            }
+
             _s.MarkLearned(Dict.Name, learned.Word);
             if (_round.Count < RoundSize && !_round.Any(x => x.Word == learned.Word))
                 _round.Add(learned);
@@ -530,6 +621,9 @@ public partial class MainWindow : Window
 
     private void Move(int delta)
     {
+        // 待重新学习的词必须学完才能过，不允许跳过
+        if (_phase == Phase.Study && _relearn.Count > 0) return;
+
         if (_review.Count > 0)
         {
             _reviewIndex = Wrap(_reviewIndex + delta, _review.Count);

@@ -13,27 +13,33 @@ namespace FloatWordWpf;
 public sealed class AppSettings
 {
     // ---- 外观 ----
+    // 默认值 = 作者当前使用的配置。
+    // 词典默认仍为 CET4：Dict 留空时取词典列表的第一个（排序后即 CET4）。
     [JsonPropertyName("dict")] public string Dict { get; set; } = "";
-    [JsonPropertyName("bg_alpha")] public double BgAlpha { get; set; } = 80;
+    [JsonPropertyName("bg_alpha")] public double BgAlpha { get; set; } = 0;
     [JsonPropertyName("text_alpha")] public double TextAlpha { get; set; } = 100;
-    [JsonPropertyName("font_size")] public double FontSize { get; set; } = 28;
-    [JsonPropertyName("phon_size")] public double PhonSize { get; set; } = 11;
-    [JsonPropertyName("mean_size")] public double MeanSize { get; set; } = 13;
+    [JsonPropertyName("font_size")] public double FontSize { get; set; } = 72;
+    [JsonPropertyName("phon_size")] public double PhonSize { get; set; } = 25;
+    [JsonPropertyName("phon_outline_w")] public double PhonOutlineW { get; set; } = 1;
+    [JsonPropertyName("phon_outline_color")] public string PhonOutlineColor { get; set; } = "#1F1F1F";
+    [JsonPropertyName("mean_size")] public double MeanSize { get; set; } = 25;
+    [JsonPropertyName("mean_outline_w")] public double MeanOutlineW { get; set; } = 1;
+    [JsonPropertyName("mean_outline_color")] public string MeanOutlineColor { get; set; } = "#1F1F1F";
     [JsonPropertyName("text_color")] public string TextColor { get; set; } = Theme.Accent;
     [JsonPropertyName("hint_color")] public string HintColor { get; set; } = Theme.BgSoft;
-    [JsonPropertyName("hint_alpha")] public double HintAlpha { get; set; } = 100;
-    [JsonPropertyName("outline_w")] public double OutlineW { get; set; } = 2;
-    [JsonPropertyName("outline_color")] public string OutlineColor { get; set; } = "#000000";
-    [JsonPropertyName("font_family")] public string FontFamily { get; set; } = "Consolas";
+    [JsonPropertyName("hint_alpha")] public double HintAlpha { get; set; } = 50;
+    [JsonPropertyName("outline_w")] public double OutlineW { get; set; } = 1;
+    [JsonPropertyName("outline_color")] public string OutlineColor { get; set; } = "#2B2B2B";
+    [JsonPropertyName("font_family")] public string FontFamily { get; set; } = "Times New Roman";
     [JsonPropertyName("font_bold")] public bool FontBold { get; set; } = true;
     [JsonPropertyName("toolbar_pinned")] public bool ToolbarPinned { get; set; }
-    [JsonPropertyName("show_dict_name")] public bool ShowDictName { get; set; }
+    [JsonPropertyName("show_dict_name")] public bool ShowDictName { get; set; } = true;
 
     // ---- 发音 ----
-    [JsonPropertyName("volume")] public double Volume { get; set; } = 100;
-    [JsonPropertyName("rate")] public double Rate { get; set; }
+    [JsonPropertyName("volume")] public double Volume { get; set; } = 60;
+    [JsonPropertyName("rate")] public double Rate { get; set; } = -3;
     [JsonPropertyName("gain")] public double Gain { get; set; } = 100;
-    [JsonPropertyName("voice")] public string Voice { get; set; } = "";
+    [JsonPropertyName("voice")] public string Voice { get; set; } = "en_US-lessac-medium";
     [JsonPropertyName("fallback_tts")] public bool FallbackTts { get; set; }
     [JsonPropertyName("autoplay")] public bool Autoplay { get; set; } = true;
     [JsonPropertyName("speak_correct")] public bool SpeakCorrect { get; set; } = true;
@@ -152,6 +158,15 @@ public sealed class AppSettings
         if (!m.TryGetValue(word, out var p))
             m[word] = p = new WordProgress();
         p.Learned = Today();
+    }
+
+    /// <summary>
+    /// 把单词移出复习系统（需重新学习）。默写连续失败时使用：
+    /// 该词不会再出现在复习队列里，直到重新学习（再次 <see cref="MarkLearned"/>）为止。
+    /// </summary>
+    public void RemoveFromReview(string dict, string word)
+    {
+        if (Learn.TryGetValue(dict, out var m)) m.Remove(word);
     }
 
     /// <summary>
@@ -307,6 +322,16 @@ public sealed class AppSettings
             2 => "二次成功",
             _ => "已完成"
         };
+    }
+
+    /// <summary>
+    /// 清空全部学习进度：各词典的学习位置 + 所有单词的 SRS 记录。
+    /// 外观、发音等设置不受影响。
+    /// </summary>
+    public void ClearProgress()
+    {
+        Progress.Clear();
+        Learn.Clear();
     }
 
     public void Reset()
