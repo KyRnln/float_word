@@ -171,14 +171,16 @@ dotnet build -c Release
 
 生成的 `bin\Release\net8.0-windows\FloatWord.exe` 即为可运行程序，`dicts\` 与 `piper\` 会被自动复制到输出目录。
 
-### 方式三：自包含发布（无需用户装 .NET）
+### 方式三：自包含单文件发布（无需用户装 .NET）
 
 ```powershell
 cd FloatWordWpf
-dotnet publish -c Release -r win-x64 --self-contained true
+dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o ..\publish
 ```
 
-> 注意：词典与 Piper 语音是**内容文件**，分发时需要连同 `dicts\`、`piper\` 目录一起打包。
+生成 `publish\FloatWord.exe`（约 **260 MB**，把 .NET 运行时一起打进这**一个 exe**；首次启动会先把原生库解压到临时目录，所以会稍慢）。
+
+> `PublishSingleFile` 只打包程序本身；词典与 Piper 语音是**内容文件**，分发时需要连同 `publish\dicts\`、`publish\piper\` 两个目录一起打包。
 
 ---
 
