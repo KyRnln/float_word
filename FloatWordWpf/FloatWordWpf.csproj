@@ -19,15 +19,33 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- 词库 -->
-    <Content Include="dicts\**\*.json" CopyToOutputDirectory="PreserveNewest" />
-    <!-- 离线 TTS：Piper 引擎与语音模型（随程序一起输出） -->
-    <Content Include="piper\bin\**\*" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="piper\voices\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 词库与离线语音都属于「内容文件」：单文件发布不会把它们塞进 exe，
+         必须同时声明 CopyToPublishDirectory，否则 PublishSingleFile 下 publish 目录会漏拷。 -->
+    <Content Include="dicts\**\*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="piper\bin\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="piper\voices\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="WPF-UI" Version="4.3.0" />
   </ItemGroup>
+
+  <!--
+    兜底拷贝：PublishSingleFile 下 SDK 有时不会把 Content 完整拷进 publish 目录
+    （实测每个 glob 只剩 1 个文件）。这里在 Publish 之后显式再拷一遍，
+    保证 dicts\ 与 piper\ 完整随包分发。
+  -->
+  <Target Name="CopyContentToPublishDir" AfterTargets="Publish">
+    <ItemGroup>
+      <_DictsToPublish Include="$(MSBuildProjectDirectory)\dicts\**\*" />
+      <_PiperToPublish Include="$(MSBuildProjectDirectory)\piper\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_DictsToPublish)"
+          DestinationFiles="@(_DictsToPublish->'$(PublishDir)dicts\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_PiperToPublish)"
+          DestinationFiles="@(_PiperToPublish->'$(PublishDir)piper\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>
