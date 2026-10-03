@@ -22,9 +22,16 @@ public sealed class AppSettings
     [JsonPropertyName("phon_size")] public double PhonSize { get; set; } = 25;
     [JsonPropertyName("phon_outline_w")] public double PhonOutlineW { get; set; } = 1;
     [JsonPropertyName("phon_outline_color")] public string PhonOutlineColor { get; set; } = "#1F1F1F";
+    [JsonPropertyName("phon_color")] public string PhonColor { get; set; } = Theme.Accent;
+    [JsonPropertyName("phon_font_family")] public string PhonFontFamily { get; set; } = "Segoe UI Variable Text";
+    [JsonPropertyName("phon_bold")] public bool PhonBold { get; set; }
     [JsonPropertyName("mean_size")] public double MeanSize { get; set; } = 25;
     [JsonPropertyName("mean_outline_w")] public double MeanOutlineW { get; set; } = 1;
     [JsonPropertyName("mean_outline_color")] public string MeanOutlineColor { get; set; } = "#1F1F1F";
+    [JsonPropertyName("mean_color")] public string MeanColor { get; set; } = Theme.Accent;
+    [JsonPropertyName("mean_font_family")] public string MeanFontFamily { get; set; } = "Segoe UI Variable Text";
+    [JsonPropertyName("mean_bold")] public bool MeanBold { get; set; }
+    /// <summary>单词颜色（注释 / 发音各有自己的 mean_color / phon_color）。</summary>
     [JsonPropertyName("text_color")] public string TextColor { get; set; } = Theme.Accent;
     [JsonPropertyName("hint_color")] public string HintColor { get; set; } = Theme.BgSoft;
     [JsonPropertyName("hint_alpha")] public double HintAlpha { get; set; } = 50;
@@ -44,6 +51,27 @@ public sealed class AppSettings
     [JsonPropertyName("autoplay")] public bool Autoplay { get; set; } = true;
     [JsonPropertyName("speak_correct")] public bool SpeakCorrect { get; set; } = true;
     [JsonPropertyName("speak_wrong")] public bool SpeakWrong { get; set; } = true;
+
+    // ---- AI 台词（OpenAI 兼容接口）----
+    [JsonPropertyName("ai_enabled")] public bool AiEnabled { get; set; }
+    [JsonPropertyName("ai_base_url")] public string AiBaseUrl { get; set; } = "https://api.openai.com/v1";
+    [JsonPropertyName("ai_api_key")] public string AiApiKey { get; set; } = "";
+    [JsonPropertyName("ai_model")] public string AiModel { get; set; } = "gpt-4o-mini";
+
+    /// <summary>
+    /// 是否让 AI 请求走系统代理。默认**直连** ——
+    /// 国内 AI 服务（DeepSeek / 通义 / Ollama 等）直连最稳，不依赖代理软件是否开着；
+    /// 用 OpenAI 等国外服务时再打开（且要保证代理软件在运行）。
+    /// </summary>
+    [JsonPropertyName("ai_use_system_proxy")] public bool AiUseSystemProxy { get; set; }
+
+    /// <summary>单词 → 台词（结构化）。缓存起来避免重复请求 API。</summary>
+    /// <remarks>
+    /// 注意：旧版本这里是「单词 → 字符串」的 ai_cache。类型变更会让反序列化抛异常、
+    /// 连带把学习进度一起重置，所以改用新键名 ai_quotes —— 旧的 ai_cache 会落进 Extra 原样保留。
+    /// </remarks>
+    [JsonPropertyName("ai_quotes")]
+    public Dictionary<string, MovieQuote> AiQuotes { get; set; } = new();
 
     // ---- 学习进度： 词典 -> 模式 -> 下标 ----
     [JsonPropertyName("progress")]
@@ -150,6 +178,12 @@ public sealed class AppSettings
 
     public WordProgress? GetProgress(string dict, string word) =>
         Learn.TryGetValue(dict, out var m) && m.TryGetValue(word, out var p) ? p : null;
+
+    // ---------- AI 台词缓存 ----------
+    public MovieQuote? GetAiQuote(string word) =>
+        AiQuotes.TryGetValue(word, out var q) && q.HasContent ? q : null;
+
+    public void SetAiQuote(string word, MovieQuote quote) => AiQuotes[word] = quote;
 
     /// <summary>学习模式下打过卡：进入阶段 0（学习中），记录学习日期。已有进度则不覆盖。</summary>
     public void MarkLearned(string dict, string word)
@@ -370,4 +404,48 @@ public sealed class WordProgress
 
     /// <summary>下次该复习的日期（阶段 1 为 +10 天，阶段 2 为 +30 天）。</summary>
     [JsonPropertyName("due")] public string Due { get; set; } = "";
+}
+
+/// <summary>
+/// 一条电影台词及附带信息，展示成「台词 / 翻译 / · 《片名》 / （年份）」四行。
+/// </summary>
+public sealed class MovieQuote
+{
+    [JsonPropertyName("quote")] public string Quote { get; set; } = "";
+    [JsonPropertyName("translation")] public string Translation { get; set; } = "";
+    [JsonPropertyName("movie")] public string Movie { get; set; } = "";
+    [JsonPropertyName("year")] public string Year { get; set; } = "";
+
+    [JsonIgnore]
+    public bool HasContent => Quote.Length > 0 || Movie.Length > 0;
+
+    /// <summary>左列：台词原文 + 中文翻译（两行）。</summary>
+    public string LeftLines()
+    {
+        var lines = new List<string>(2);
+        if (Quote.Length > 0) lines.Add(Quote);
+        if (Translation.Length > 0) lines.Add(Translation);
+        return string.Join('\n', lines);
+    }
+
+    /// <summary>右列第一行：《片名》（年份单独一行、居中于这一行之下；分隔点由界面单独居中放置）。</summary>
+    public string MovieLine() => Movie.Length > 0 ? $"《{Movie}》" : "";
+
+    /// <summary>右列第二行：（年份）。</summary>
+    public string YearLine() => Year.Length > 0 ? $"（{Year}）" : "";
+
+    /// <summary>单列预览（设置页「测试」弹窗用）。</summary>
+    public string ToLines()
+    {
+        var blocks = new List<string>(2);
+        var a = LeftLines();
+        if (a.Length > 0) blocks.Add(a);
+
+        var right = new List<string>(2);
+        if (MovieLine().Length > 0) right.Add("· " + MovieLine());
+        if (YearLine().Length > 0) right.Add(YearLine());
+        if (right.Count > 0) blocks.Add(string.Join('\n', right));
+
+        return string.Join("\n\n", blocks);
+    }
 }

@@ -106,6 +106,24 @@
                     <!-- 音标：独立字号与描边 -->
                     <local:OutlinedText x:Name="Phon" HorizontalAlignment="Center" Margin="0,4,0,0" />
 
+                    <!-- AI 台词：左列「台词 + 翻译」，中间分隔点，右列「《片名》 + （年份）」，两列并排 -->
+                    <Grid x:Name="Quote" HorizontalAlignment="Center" Margin="0,4,0,0" Visibility="Collapsed">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <local:OutlinedText x:Name="QuoteLeft" Grid.Column="0" VerticalAlignment="Top" />
+                        <!-- 分隔点：垂直居中于左右两列的行间，而不是贴在首行 -->
+                        <local:OutlinedText x:Name="QuoteDot" Grid.Column="1" Text="·"
+                                            Margin="14,0,14,0" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="2" VerticalAlignment="Top">
+                            <!-- 片名定列宽，年份居中于片名之下 -->
+                            <local:OutlinedText x:Name="QuoteMovie" HorizontalAlignment="Left" />
+                            <local:OutlinedText x:Name="QuoteYear" HorizontalAlignment="Center" />
+                        </StackPanel>
+                    </Grid>
+
                     <!-- 反馈：Caption 级 -->
                     <TextBlock x:Name="Feedback" HorizontalAlignment="Center" Margin="0,2,0,0"
                                FontFamily="Segoe UI Variable Text, Segoe UI"

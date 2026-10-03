@@ -11,11 +11,12 @@ namespace FloatWordWpf;
 /// <c>FormattedText.BuildGeometry()</c> 取字形轮廓，再用 Pen 描边 —— 与 WordCanvas 同一套思路。
 ///
 /// 两个关键点：
-///   1. <see cref="FormattedText.TextAlignment"/> 只在设置了 <c>MaxTextWidth</c> 时才生效，
-///      所以这里**总是**给它一个宽度上限；否则多行文本（释义按词性分行）会全部左对齐。
+///   1. 总是给 <c>FormattedText</c> 设 <c>MaxTextWidth</c>：文本按这个宽度换行。
+///      行内为左对齐（释义按词性分行后左对齐更整齐），
+///      多行文本的每一行都从块左边缘开始。
 ///   2. 控件尺寸取「墨迹范围」而不是对齐宽度：这样控件恰好包住文字，
-///      既不会被裁切，也不会因为 MaxTextWidth 很大而把窗口撑得很宽；
-///      居中交给外层 <c>HorizontalAlignment="Center"</c> 完成。
+///      既不会被裁切，也不会因为 MaxTextWidth 很大而把窗口撑宽；
+///      **整块的水平居中**交给外层 <c>HorizontalAlignment="Center"</c> 完成。
 /// </summary>
 public class OutlinedText : FrameworkElement
 {
@@ -60,7 +61,8 @@ public class OutlinedText : FrameworkElement
         new(_text, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
             Face(), FontSize, _textBrush, Dpi())
         {
-            TextAlignment = TextAlignment.Center,
+            // 行内左对齐；整块的水平居中由外层 HorizontalAlignment 负责
+            TextAlignment = TextAlignment.Left,
             MaxTextWidth = Math.Max(1, maxTextWidth)
         };
 

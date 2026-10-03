@@ -2,7 +2,7 @@
 
 一个常驻桌面的**半透明悬浮背单词工具**：像歌词一样浮在所有窗口之上，直接在单词上逐字输入，边打边背。
 
-参考 [qwerty.kaiyi.cool](https://qwerty.kaiyi.cool/) 的设计思路，用 **WPF + 离线 Piper 语音** 重写为原生 Windows 桌面应用：单机运行、**完全离线**、无边框、可自由摆放。
+参考 [qwerty.kaiyi.cool](https://qwerty.kaiyi.cool/) 的设计思路，用 **WPF + 离线 Piper 语音** 重写为原生 Windows 桌面应用：单机运行、**默认完全离线**（可选开启 AI 台词，开启后需要联网）、无边框、可自由摆放。
 
 ---
 
@@ -67,6 +67,19 @@
 - 可调**音量 / 增益 / 语速**，可设置新词自动播报、答对播报、答错播报
 - 不需要联网，不需要 API Key
 
+### AI 台词（可选）
+
+- 用 **OpenAI 兼容**的 `/chat/completions` 接口，为每个单词生成一句**含该词的经典电影台词**
+- **左右两列并排**，整体作为一个块替换音标：左列 = 台词原文 + 中文翻译，右列 = `《片名》` + `（年份）`
+- 两列之间的 `·` 垂直居中于两行之间；**年份居中于片名之下**
+- 显示方式：进入学习模式 **2 秒后**，把音标替换成台词
+- **只在学习模式显示** —— 默写 / 复习不显示，避免台词里带着答案
+- 结果按单词缓存进配置文件，同一个词只请求一次
+- 默认关闭；设置里填 `Base URL` + `API Key` + 模型名即可，兼容 OpenAI / DeepSeek / Moonshot / 通义 / 智谱 / 本地 Ollama 等
+- 请求默认**直连**；用 OpenAI 等国外服务时勾选「AI 请求走系统代理」
+- 建议用**普通对话模型**（如 `deepseek-chat`，几百毫秒返回）；推理型模型（`deepseek-flash` / `reasoner`）会先输出一大段思考内容，一句台词要 20~40 秒（请求超时上限 60 秒）
+- 设置里提供「测试 AI 连接…」按钮，出问题会显示具体原因；日志在程序目录 `logs\floatword.log`
+
 ### 词典
 
 - 内置 **8 本**考试词典（中考 / 高考 / CET4 / CET6 / 考研 / 雅思 / 托福 / GRE）
@@ -76,11 +89,12 @@
 
 ### 个性化设置
 
-- 背景透明度、文字透明度、单词 / 音标 / 释义字号、文字颜色、描边宽度与颜色
-- 字体族（17 种可选）、是否加粗
-- 提示框颜色与透明度
-- 工具栏**默认隐藏**，鼠标移入才显示；可设为常显
+- 单词 / 注释 / 发音三组各自独立的字体（17 种可选）、字号、加粗、文字颜色、描边宽度与颜色
+- 背景透明度、文字透明度、工具栏**默认隐藏**（鼠标移入才显示，可设为常显）
+- 提示框颜色与透明度、是否显示词典名
 - 设置自动持久化到 `floatword_config.json`
+
+> 设置页分节：「学习进度」→ 词典模块 →「外观」（内含 **单词 / 注释 / 发音 / 其他** 四个可折叠组）→「语音播报」→「AI 台词」→「日志」→「重置」。
 
 ### 学习进度
 
@@ -113,7 +127,7 @@
 | --- | --- |
 | 操作系统 | Windows 10 1809+ / Windows 11（Mica 云母效果需要 Windows 11） |
 | 运行时 | .NET 8 Desktop Runtime（从源码构建需 .NET 8 SDK） |
-| 网络 | 不需要（语音与词典全部离线） |
+| 网络 | 默认不需要（语音与词典全部离线）；开启「AI 台词」后需要联网 |
 
 > 界面基于 **Fluent 2 / Windows 11 深色令牌** 设计，在 Windows 11 上观感最佳。
 
@@ -288,15 +302,21 @@ dotnet publish -c Release -r win-x64 --self-contained true
 | --- | --- |
 | `dict` | 当前词典名 |
 | `bg_alpha` / `text_alpha` | 背景 / 文字透明度（0–100） |
-| `font_size` / `phon_size` / `mean_size` | 单词 / 音标 / 释义字号 |
-| `text_color` / `outline_color` / `outline_w` | 文字颜色、描边颜色与宽度 |
+| `font_size` / `mean_size` / `phon_size` | 单词 / 注释 / 发音字号 |
+| `font_family` / `mean_font_family` / `phon_font_family` | 三组各自的字体 |
+| `font_bold` / `mean_bold` / `phon_bold` | 三组各自的加粗 |
+| `text_color` / `mean_color` / `phon_color` | 三组各自的文字颜色 |
+| `outline_color` / `outline_w` | 单词描边颜色与宽度 |
+| `mean_outline_color` / `mean_outline_w` | 注释描边颜色与宽度 |
+| `phon_outline_color` / `phon_outline_w` | 发音描边颜色与宽度（AI 台词块同样跟随） |
 | `hint_color` / `hint_alpha` | 提示框颜色与透明度 |
-| `font_family` / `font_bold` | 字体族与是否加粗 |
 | `toolbar_pinned` / `show_dict_name` | 工具栏常显 / 显示词典名 |
 | `volume` / `gain` / `rate` / `voice` | 音量、增益、语速、语音模型 |
 | `autoplay` / `speak_correct` / `speak_wrong` | 自动播报、答对播报、答错播报 |
 | `progress` | 每个词典的学习位置（下标） |
 | `learn` | **SRS 进度**：词典 → 单词 → `{stage, streak, learned, last_ok, due}` |
+| `ai_enabled` / `ai_base_url` / `ai_api_key` / `ai_model` | AI 台词配置（**API Key 为明文**，别连同配置一起分享） |
+| `ai_quotes` | 单词 → 台词缓存（`{quote, translation, movie, year}`） |
 
 > 想重置学习进度，删除 `learn`（单词级 SRS）与 `progress`（当前学到哪）两个字段即可；程序与 Python 旧版的配置键名兼容，未知字段会原样保留。
 
@@ -322,13 +342,16 @@ float-word/
 │  ├─ app.manifest                清单：Per-Monitor V2 DPI 感知、Windows 10/11 兼容声明
 │  ├─ FloatWordWpf.csproj         项目文件（词典与 piper 作为内容输出）
 │  ├─ Controls/
-│  │  └─ WordCanvas.cs            单词绘制：逐字、描边、等宽槽位排版
+│  │  ├─ WordCanvas.cs            单词绘制：逐字、描边、等宽槽位排版
+│  │  └─ OutlinedText.cs          释义 / 音标 / 台词：几何描边文本控件
 │  ├─ Domain/
-│  │  ├─ AppSettings.cs           配置持久化 + SRS 状态机
+│  │  ├─ AppSettings.cs           配置持久化 + SRS 状态机 + 台词缓存
 │  │  ├─ Dictionary.cs            词库加载 / 双格式解析 / 确定性打乱
-│  │  └─ PiperService.cs          离线 TTS（常驻进程 + 增益）
+│  │  ├─ PiperService.cs          离线 TTS（常驻进程 + 增益）
+│  │  ├─ AiQuoteService.cs        AI 台词请求（OpenAI 兼容接口）
+│  │  └─ Log.cs                   轻量日志 `logs\floatword.log`（1 MB 轮转）
 │  ├─ Views/
-│  │  ├─ MainWindow.xaml(.cs)     悬浮窗：学习 / 默写 / 复习 与输入
+│  │  ├─ MainWindow.xaml(.cs)     悬浮窗：学习 / 本组默写 / 复习 与输入
 │  │  ├─ SettingsWindow.cs        设置窗口（FluentWindow + Mica）
 │  │  └─ FluentTokens.xaml        少量 Fluent 补充样式
 │  ├─ dicts/                      内置词典（8 本 JSON）

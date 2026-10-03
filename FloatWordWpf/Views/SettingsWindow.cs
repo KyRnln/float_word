@@ -32,6 +32,7 @@ public sealed class SettingsWindow : FluentWindow
     private readonly StackPanel _body = new();
     private readonly List<Action> _progressRefreshers = new();
     private ComboBox? _dictCombo;
+    private readonly AiQuoteService _ai = new();
 
     /// <summary>当前设置项的写入目标：普通项写 _body，折叠组内写组内的面板。</summary>
     private Panel _target = null!;
@@ -141,13 +142,16 @@ public sealed class SettingsWindow : FluentWindow
             ColorRow("描边颜色", Theme.OutlinePresets, () => _s.OutlineColor, v => _s.OutlineColor = v);
             ColorRow("提示框颜色", Theme.HintPresets, () => _s.HintColor, v => _s.HintColor = v);
             SliderRow("提示框透明度", 0, 100, () => _s.HintAlpha, v => _s.HintAlpha = v);
-            Note("文字颜色由单词、注释、发音三处共用；提示框是当前待输入字符的高亮块。");
+            Note("提示框是当前待输入字符的高亮块。");
         });
 
         // 注释（释义）
         Group("注释", () =>
         {
+            Choice("字体", Theme.FontChoices, () => _s.MeanFontFamily, v => _s.MeanFontFamily = v);
             SliderRow("字号", 8, 36, () => _s.MeanSize, v => _s.MeanSize = v);
+            Check("加粗", () => _s.MeanBold, v => _s.MeanBold = v);
+            ColorRow("文字颜色", Theme.ColorPresets, () => _s.MeanColor, v => _s.MeanColor = v);
             SliderRow("描边宽度", 0, 8, () => _s.MeanOutlineW, v => _s.MeanOutlineW = v);
             ColorRow("描边颜色", Theme.OutlinePresets, () => _s.MeanOutlineColor, v => _s.MeanOutlineColor = v);
         });
@@ -155,9 +159,13 @@ public sealed class SettingsWindow : FluentWindow
         // 发音（音标）
         Group("发音", () =>
         {
+            Choice("字体", Theme.FontChoices, () => _s.PhonFontFamily, v => _s.PhonFontFamily = v);
             SliderRow("字号", 8, 32, () => _s.PhonSize, v => _s.PhonSize = v);
+            Check("加粗", () => _s.PhonBold, v => _s.PhonBold = v);
+            ColorRow("文字颜色", Theme.ColorPresets, () => _s.PhonColor, v => _s.PhonColor = v);
             SliderRow("描边宽度", 0, 8, () => _s.PhonOutlineW, v => _s.PhonOutlineW = v);
             ColorRow("描边颜色", Theme.OutlinePresets, () => _s.PhonOutlineColor, v => _s.PhonOutlineColor = v);
+            Note("AI 台词块（台词 / 翻译 / 片名 / 年份）也跟随这组设置。");
         });
 
         // 其余个性化项
@@ -188,9 +196,28 @@ public sealed class SettingsWindow : FluentWindow
         Check("答对后播报一次", () => _s.SpeakCorrect, v => _s.SpeakCorrect = v);
         Check("错误后播报一次", () => _s.SpeakWrong, v => _s.SpeakWrong = v);
 
+        Section("AI 台词（OpenAI 兼容接口）");
+
+        Check("启用 AI 台词（学习模式，2 秒后用台词替换音标）", () => _s.AiEnabled, v => _s.AiEnabled = v);
+        TextRow("Base URL", () => _s.AiBaseUrl, v => _s.AiBaseUrl = v);
+        TextRow("API Key", () => _s.AiApiKey, v => _s.AiApiKey = v);
+        TextRow("模型", () => _s.AiModel, v => _s.AiModel = v);
+        Check("AI 请求走系统代理（OpenAI 等国外服务勾上；DeepSeek / 通义 / Ollama 等国内服务别勾）",
+              () => _s.AiUseSystemProxy, v => _s.AiUseSystemProxy = v);
+        Note("为单词生成一句含该词的经典电影台词，格式「台词---电影名称」。仅在学习模式显示——" +
+             "默写 / 复习不显示，避免台词带着答案。结果会缓存到配置文件，同一个词只请求一次；" +
+             "API Key 以明文保存，请注意不要把它连同配置文件一起分享。");
+        Note("建议用普通对话模型（如 deepseek-chat，几百毫秒就返回）。" +
+             "推理型模型（如 deepseek-flash / reasoner）会先输出一大段思考内容，" +
+             "生成一句台词要 20~40 秒，台词会明显延迟出现。");
+        TestAiRow();
+
         Note("提示：鼠标移入悬浮窗显示工具栏；点击窗口后直接在单词上逐字输入；← → 切换单词。");
         Note("WPF 版使用真 per-pixel alpha，半透明背景下文字边缘也不会有毛边，因此不需要「清晰文字」开关。");
         Note($"设置自动保存在 {AppPaths.ConfigFile}");
+
+        Section("日志");
+        LogRow();
 
         // 破坏性操作放到最下方，且必须二次确认
         Section("重置");
@@ -353,6 +380,31 @@ public sealed class SettingsWindow : FluentWindow
         g.Children.Add(val);
     }
 
+    /// <summary>单行文本输入（Base URL / API Key / 模型名）。</summary>
+    private void TextRow(string label, Func<string> get, Action<string> set)
+    {
+        var g = NewRow();
+        RowLabel(g, label);
+
+        var tb = new TextBox
+        {
+            Text = get(),
+            VerticalAlignment = VerticalAlignment.Center,
+            FontFamily = MonoFont,
+            FontSize = 12
+        };
+        tb.TextChanged += (_, _) =>
+        {
+            if (tb.Text == get()) return;
+            set(tb.Text);
+            _main.RefreshFromSettings();
+        };
+
+        Grid.SetColumn(tb, 1);
+        Grid.SetColumnSpan(tb, 2);
+        g.Children.Add(tb);
+    }
+
     /// <summary>进度行：左名称、中进度条、右「当前 / 合计」。</summary>
     private void ProgressRow(string label, Func<int> count, Func<int> total)
     {
@@ -484,7 +536,7 @@ public sealed class SettingsWindow : FluentWindow
         }
         catch (Exception ex)
         {
-            await Warn("读取失败：" + ex.Message);
+            await Warn("读取失败：" + ex.Message, "导入词典");
             return;
         }
 
@@ -493,7 +545,8 @@ public sealed class SettingsWindow : FluentWindow
             await Warn("这个文件里没有解析出任何单词。\n\n支持的格式：\n" +
                        "[{ \"word\": \"abandon\", \"phonetic\": \"/əˈbændən/\", \"meaning\": \"v. 放弃\" }]\n\n" +
                        "或 Qwerty Learner 格式：\n" +
-                       "[{ \"name\": \"abandon\", \"trans\": [\"v. 放弃\"], \"usphone\": \"ə'bændən\" }]");
+                       "[{ \"name\": \"abandon\", \"trans\": [\"v. 放弃\"], \"usphone\": \"ə'bændən\" }]",
+                "导入词典");
             return;
         }
 
@@ -511,7 +564,7 @@ public sealed class SettingsWindow : FluentWindow
         }
         catch (Exception ex)
         {
-            await Warn("写入失败：" + ex.Message);
+            await Warn("写入失败：" + ex.Message, "导入词典");
             return;
         }
 
@@ -573,12 +626,114 @@ public sealed class SettingsWindow : FluentWindow
         await Info("学习进度已清空，所有单词回到「未学」状态。");
     }
 
+    /// <summary>AI 配置测试：用当前配置真实发一次请求，把台词或错误原因原样显示出来。</summary>
+    private void TestAiRow()
+    {
+        var g = NewRow();
+        var btn = new FluentButton
+        {
+            Content = "测试 AI 连接…",
+            Appearance = ControlAppearance.Secondary,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            MinWidth = 130,
+            FontFamily = TextFont,
+            FontSize = 13
+        };
+        btn.Click += async (_, _) =>
+        {
+            btn.IsEnabled = false;
+            bool ok;
+            string text;
+            try
+            {
+                // 忽略缓存，确保每次都是真实请求（否则第一次成功后就一直是缓存结果）
+                var r = await _ai.FetchAsync("abandon", _s, CancellationToken.None, useCache: false);
+                ok = r.Ok;
+                text = r.Ok ? "调用成功。\n\n以单词 abandon 为例：\n" + r.Quote!.ToLines()
+                            : "调用失败：\n\n" + r.Error;
+            }
+            catch (OperationCanceledException)
+            {
+                ok = false;
+                text = "请求超时或被取消（默认超时 20 秒）。";
+            }
+            catch (Exception ex)
+            {
+                Log.Error("AI 测试失败", ex);
+                ok = false;
+                text = "测试过程出错：\n\n" + ex.Message;
+            }
+            finally
+            {
+                btn.IsEnabled = true;
+            }
+
+            Log.Info($"AI 测试结果 ok={ok}：" + text.Replace("\n", " "));
+            await ShowResultAsync(text, "AI 测试");
+        };
+        Grid.SetColumn(btn, 0);
+        Grid.SetColumnSpan(btn, 3);
+        g.Children.Add(btn);
+    }
+
+    /// <summary>弹窗自身出问题也不能把程序带崩（异常会被全局日志兜住）。</summary>
+    private async Task ShowResultAsync(string message, string title)
+    {
+        try
+        {
+            var box = new Wpf.Ui.Controls.MessageBox
+            {
+                Title = title,
+                Content = message,
+                CloseButtonText = "知道了"
+            };
+            await box.ShowDialogAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("弹窗显示失败", ex);
+        }
+    }
+
+    /// <summary>日志版块：方便出问题时一键打开现场记录。</summary>
+    private void LogRow()
+    {
+        var g = NewRow();
+        var btn = new FluentButton
+        {
+            Content = "打开日志文件…",
+            Appearance = ControlAppearance.Secondary,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            MinWidth = 130,
+            FontFamily = TextFont,
+            FontSize = 13
+        };
+        btn.Click += (_, _) =>
+        {
+            try
+            {
+                Log.Info("用户从设置里打开了日志");
+                System.Diagnostics.Process.Start(
+                    new System.Diagnostics.ProcessStartInfo(Log.FilePath) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                Log.Error("打开日志失败", ex);
+            }
+        };
+        Grid.SetColumn(btn, 0);
+        Grid.SetColumnSpan(btn, 3);
+        g.Children.Add(btn);
+
+        Note("崩溃、AI 调用等现场都记在这里（超过 1MB 会轮换成 .log.1）：" + Log.FilePath);
+    }
+
     // 用 WPF-UI 的 Fluent 对话框，避免系统原生（白底）弹窗在深色界面里突兀
-    private async Task Warn(string message)
+    private async Task Warn(string message, string title = "提示")
     {
         var box = new Wpf.Ui.Controls.MessageBox
         {
-            Title = "导入词典",
+            Title = title,
             Content = message,
             CloseButtonText = "知道了"
         };

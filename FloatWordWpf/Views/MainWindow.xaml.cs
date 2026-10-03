@@ -16,6 +16,9 @@ public partial class MainWindow : Window
     /// <summary>亮出答案的时长（毫秒）。</summary>
     private const int AutoHintMs = 3000;
 
+    /// <summary>显示单词多久后，用 AI 台词替换音标（毫秒）。</summary>
+    private const int AiQuoteDelayMs = 2000;
+
     private enum Phase
     {
         /// <summary>学习：显示单词详情，边看边打。</summary>
@@ -48,6 +51,12 @@ public partial class MainWindow : Window
     private bool _ready;
     private int _wrongStreak;        // 当前词连续输错次数（本组默写用）
     private bool _autoReveal;        // 连错满 5 次后自动亮出答案中
+
+    private readonly AiQuoteService _ai = new();
+    private CancellationTokenSource? _aiCts;
+    private string _aiWord = "";     // 已为哪个词发起过台词请求
+    private MovieQuote? _aiQuote;    // 当前要显示的台词（null = 仍显示音标）
+    private string _aiSignature = "\u0000";   // AI 配置指纹：变了就作废当前台词重新请求
 
     private bool _hintHeld;          // 提示按钮是否正被按住（按住显示答案）
     private bool _hintUsed;          // 本词是否用过提示（用提示会清零连续天数）
@@ -145,34 +154,60 @@ public partial class MainWindow : Window
         ShadowLayer.Opacity = Math.Clamp(_s.BgAlpha / 100.0, 0, 1);
 
         double top = Math.Clamp(_s.TextAlpha / 100.0, 0, 1);
-        Info.Opacity = Mean.Opacity = Phon.Opacity = Feedback.Opacity = Word.Opacity = top;
-
-        var textColor = Theme.Brush(_s.TextColor);
-
-        // 注释（释义）：字号 + 独立描边
-        Mean.TextBrush = textColor;
-        Mean.FontSize = _s.MeanSize;
-        Mean.OutlineWidth = _s.MeanOutlineW;
-        Mean.OutlineBrush = Theme.Brush(_s.MeanOutlineColor);
-
-        // 发音（音标）：字号 + 独立描边
-        Phon.TextBrush = textColor;
-        Phon.FontSize = _s.PhonSize;
-        Phon.OutlineWidth = _s.PhonOutlineW;
-        Phon.OutlineBrush = Theme.Brush(_s.PhonOutlineColor);
+        Info.Opacity = Mean.Opacity = Phon.Opacity = Quote.Opacity = Feedback.Opacity = Word.Opacity = top;
 
         // 释义按词性分行，每行长短差别很大：给一个随屏幕自适应的上限，
         // 既让绝大多数词性行不折行，又不会把窗口撑到屏幕外。
-        Mean.TextMaxWidth = Math.Clamp(SystemParameters.WorkArea.Width * 0.62, 480, 1400);
+        double textLimit = Math.Clamp(SystemParameters.WorkArea.Width * 0.62, 480, 1400);
+
+        // 注释（释义）：字体 / 字号 / 加粗 / 颜色 / 描边，与单词的设置项一一对应
+        Mean.FontFamilyName = _s.MeanFontFamily;
+        Mean.FontSize = _s.MeanSize;
+        Mean.Bold = _s.MeanBold;
+        Mean.TextBrush = Theme.Brush(_s.MeanColor);
+        Mean.OutlineWidth = _s.MeanOutlineW;
+        Mean.OutlineBrush = Theme.Brush(_s.MeanOutlineColor);
+        Mean.TextMaxWidth = textLimit;
+
+        // 发音（音标）：同上（平时很短，同样给换行上限以防被台词撑宽）
+        Phon.FontFamilyName = _s.PhonFontFamily;
+        Phon.FontSize = _s.PhonSize;
+        Phon.Bold = _s.PhonBold;
+        Phon.TextBrush = Theme.Brush(_s.PhonColor);
+        Phon.OutlineWidth = _s.PhonOutlineW;
+        Phon.OutlineBrush = Theme.Brush(_s.PhonOutlineColor);
+        Phon.TextMaxWidth = textLimit;
+
+        // AI 台词块：整套跟随「发音」；左列（台词+翻译）宽一些，右列（片名+年份）窄一些
+        foreach (var t in new[] { QuoteLeft, QuoteDot, QuoteMovie, QuoteYear })
+        {
+            t.FontFamilyName = _s.PhonFontFamily;
+            t.FontSize = _s.PhonSize;
+            t.Bold = _s.PhonBold;
+            t.TextBrush = Theme.Brush(_s.PhonColor);
+            t.OutlineWidth = _s.PhonOutlineW;
+            t.OutlineBrush = Theme.Brush(_s.PhonOutlineColor);
+        }
+        QuoteLeft.TextMaxWidth = textLimit * 0.62;
+        QuoteMovie.TextMaxWidth = textLimit * 0.38;
+        QuoteYear.TextMaxWidth = textLimit * 0.38;
 
         Word.FontFamilyName = _s.FontFamily;
         Word.FontSize = _s.FontSize;
         Word.Bold = _s.FontBold;
         Word.OutlineWidth = _s.OutlineW;
-        Word.TextBrush = textColor;
+        Word.TextBrush = Theme.Brush(_s.TextColor);
         Word.OutlineBrush = Theme.Brush(_s.OutlineColor);
         Word.HintBrush = Theme.Brush(_s.HintColor, _s.HintAlpha / 100.0);
         Word.Relayout();
+
+        // AI 配置（开关 / 地址 / Key / 模型）变了 → 作废当前台词，下次渲染重新请求
+        var aiSig = $"{_s.AiEnabled}|{_s.AiBaseUrl}|{_s.AiApiKey}|{_s.AiModel}|{_s.AiUseSystemProxy}";
+        if (aiSig != _aiSignature)
+        {
+            _aiSignature = aiSig;
+            CancelAiQuote();
+        }
 
         if (_s.ToolbarPinned) SetToolbarVisible(true);
     }
@@ -279,6 +314,8 @@ public partial class MainWindow : Window
             return;
         }
 
+        UpdateAiState(w);   // 换词时重置台词状态（仅学习模式）
+
         // 进度：复习显示队列位置，本组默写显示组内位置，重学显示剩余个数，否则显示词典位置
         string pos;
         if (_review.Count > 0) pos = $"复习 {_reviewIndex + 1}/{_review.Count}";
@@ -302,8 +339,24 @@ public partial class MainWindow : Window
 
         // 学习模式始终显示；按住提示、连错 5 次自动亮答案、或拼对了都显示
         bool revealed = _phase == Phase.Study || _hintHeld || _autoReveal || _typed >= w.Word.Length;
-        Phon.Text = revealed ? w.Phonetic : "";
-        Phon.TextBrush = revealed ? Theme.Brush(_s.TextColor) : Theme.Brush(Theme.Muted);
+
+        // 学习模式下，显示满 2 秒后用 AI 台词块替换音标
+        bool showQuote = revealed && _phase == Phase.Study && _aiQuote is not null && _aiWord == w.Word;
+        Phon.Visibility = showQuote ? Visibility.Collapsed : Visibility.Visible;
+        Quote.Visibility = showQuote ? Visibility.Visible : Visibility.Collapsed;
+        if (showQuote)
+        {
+            QuoteLeft.Text = _aiQuote!.LeftLines();     // 左列：台词 + 翻译
+            QuoteMovie.Text = _aiQuote.MovieLine();     // 右列上行：《片名》
+            QuoteYear.Text = _aiQuote.YearLine();       // 右列下行：（年份），居中于片名之下
+            // 没有片名时右列是空的，分隔点也就没有存在的意义
+            QuoteDot.Visibility = _aiQuote.MovieLine().Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        else
+        {
+            Phon.Text = revealed ? w.Phonetic : "";
+            Phon.TextBrush = revealed ? Theme.Brush(_s.PhonColor) : Theme.Brush(Theme.Muted);
+        }
 
         // 默写/复习用等宽槽位排版（占位横线等宽、间距一致）；学习模式按字母真实宽度
         Word.UniformCells = _phase != Phase.Study;
@@ -329,6 +382,68 @@ public partial class MainWindow : Window
     private void SpeakIfAuto()
     {
         if (_s.Autoplay) Speak();
+    }
+
+    // ---------- AI 台词 ----------
+    /// <summary>
+    /// 换词时重置台词状态：学习模式下发起一次请求，满 2 秒后把音标替换成台词；
+    /// 默写 / 复习不显示（台词里通常带着答案）。同一个词不重复请求（服务里有缓存）。
+    /// </summary>
+    private void UpdateAiState(WordItem w)
+    {
+        if (!_s.AiEnabled || _phase != Phase.Study)
+        {
+            CancelAiQuote();
+            return;
+        }
+
+        if (_aiWord == w.Word) return;   // 还是同一个词，保持现状
+
+        _aiWord = w.Word;
+        _aiQuote = null;
+        _aiCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _aiCts = cts;
+        _ = RunAiQuoteAsync(w, cts);
+    }
+
+    private void CancelAiQuote()
+    {
+        if (_aiWord.Length == 0 && _aiQuote is null) return;
+        _aiWord = "";
+        _aiQuote = null;
+        _aiCts?.Cancel();
+    }
+
+    private async Task RunAiQuoteAsync(WordItem w, CancellationTokenSource cts)
+    {
+        var ct = cts.Token;
+        try
+        {
+            var fetch = _ai.FetchAsync(w.Word, _s, ct);
+
+            // 先让用户看一会儿音标，满 2 秒再替换；请求慢的话等它回来再显示
+            await Task.WhenAll(fetch, Task.Delay(AiQuoteDelayMs, ct));
+            if (ct.IsCancellationRequested || _aiWord != w.Word) return;
+
+            var outcome = fetch.Result;
+            if (outcome.Ok)
+            {
+                _aiQuote = outcome.Quote;   // 台词 / 翻译 / · 《片名》 / （年份）
+                ScheduleSave();          // 台词缓存写进配置，下次不再请求
+                Render();
+            }
+            else if (outcome.Error is { } err)
+            {
+                // 失败时把原因显示出来，避免"没反应又不知道哪里错了"
+                Feedback.Text = err.Length > 60 ? "AI：" + err[..60] + "…" : "AI：" + err;
+                Feedback.Foreground = Theme.Brush(Theme.Muted);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 换词 / 关闭功能时取消，属正常路径
+        }
     }
 
     private void ResetTyped()
@@ -499,7 +614,7 @@ public partial class MainWindow : Window
             // 默写/复习：先把正确答案亮出来再走
             Word.Reveal = true;
             Phon.Text = c.Phonetic;
-            Phon.TextBrush = Theme.Brush(_s.TextColor);
+            Phon.TextBrush = Theme.Brush(_s.PhonColor);
         }
 
         // 复习判定：按「是否用过提示 + 连续天数 + 阶段」推进 SRS 状态
@@ -849,6 +964,7 @@ public partial class MainWindow : Window
     // ---------- 退出 ----------
     private void OnWindowClosed(object? sender, EventArgs e)
     {
+        _aiCts?.Cancel();
         Remember();
         _saveTimer.Stop();
         _s.Save(AppPaths.ConfigFile);
