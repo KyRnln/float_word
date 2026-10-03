@@ -46,7 +46,8 @@
 
 - **逐字输入**：点一下窗口获得焦点，直接在单词上敲键盘，不需要输入框
 - 输错 → 单词变红并清空，同时可播报一次
-- 拼对 → 可播报一次，短暂显示答案后自动进入下一个
+- 拼对 → 播放一声**「叮」提示音**（程序内合成，无需音频文件），短暂显示答案后自动进入下一个
+- **动效**：输入提示框沿缓动曲线横向滑动；切换单词时新单词从右向左滑入
 
 ### 提示功能（复习模式）
 
@@ -78,7 +79,10 @@
 - 默认关闭；设置里填 `Base URL` + `API Key` + 模型名即可，兼容 OpenAI / DeepSeek / Moonshot / 通义 / 智谱 / 本地 Ollama 等
 - 请求默认**直连**；用 OpenAI 等国外服务时勾选「AI 请求走系统代理」
 - 建议用**普通对话模型**（如 `deepseek-chat`，几百毫秒返回）；推理型模型（`deepseek-flash` / `reasoner`）会先输出一大段思考内容，一句台词要 20~40 秒（请求超时上限 60 秒）
-- 设置里提供「测试 AI 连接…」按钮，出问题会显示具体原因；日志在程序目录 `logs\floatword.log`
+- **台词长度受限**（按英文单词数）：提示模型尽量 20 词内，超过 40 词硬截断，避免把悬浮窗撑得过宽
+- 台词里**命中当前单词的部分会用高亮色标出**（忽略大小写，含词形变化，如 `abandon` → `abandoned`）
+- 设置里提供「测试 AI 连接…」按钮，出问题会显示具体原因；另有「清空台词缓存…」可让全部单词重新获取台词（**不影响学习进度**）
+- 日志在程序目录 `logs\floatword.log`
 
 ### 词典
 
@@ -89,12 +93,13 @@
 
 ### 个性化设置
 
-- 单词 / 注释 / 发音三组各自独立的字体（17 种可选）、字号、加粗、文字颜色、描边宽度与颜色
+- 单词 / 注释 / 发音·台词 三组各自独立的字体（17 种可选）、字号、加粗、文字颜色、描边宽度与颜色
+- **发音/台词**组额外提供「高亮词颜色」，用于 AI 台词里命中当前单词的部分
 - 背景透明度、文字透明度、工具栏**默认隐藏**（鼠标移入才显示，可设为常显）
 - 提示框颜色与透明度、是否显示词典名
 - 设置自动持久化到 `floatword_config.json`
 
-> 设置页分节：「学习进度」→ 词典模块 →「外观」（内含 **单词 / 注释 / 发音 / 其他** 四个可折叠组）→「语音播报」→「AI 台词」→「日志」→「重置」。
+> 设置页分节：「学习进度」→「词典」→「外观」（内含 **单词 / 注释 / 发音·台词 / 其他** 四个可折叠组）→「其他设置」（内含 **语音播报 / AI 台词 / 数据备份（WebDAV）** 三个可折叠组）→「日志」→「重置」。展开的折叠组会用一圈细边框把内容框住。
 
 ### 学习进度
 
@@ -106,6 +111,15 @@
 阶段 2           [          ]   N / 总词数
 已完成           [          ]   N / 总词数
 ```
+
+### 数据备份（WebDAV）
+
+- 把**设置 + 全部学习进度**（含每个词的 SRS 阶段、连续天数）打包上传到 WebDAV 网盘，换电脑或重装后一键恢复
+- **默认对接坚果云**：只需填登录邮箱 + 网页端生成的「应用密码」，服务器地址已预填好
+- 设置页提供「测试连接… / 立即备份 / 从云端恢复…」三个按钮，并显示上次备份时间
+- 可选**退出程序时自动备份**（未填账号密码时自动跳过；最多等 8 秒，失败只记日志）
+- 「从云端恢复」会覆盖本地数据并**自动重启程序**；恢复前先校验文件是否是合法配置，坏文件直接放弃
+- 兼容任意 WebDAV 服务（Nextcloud / ownCloud / 群晖 / InfiniCLOUD 等），改「服务器地址」即可
 
 ---
 
@@ -309,6 +323,7 @@ dotnet publish -c Release -r win-x64 --self-contained true
 | `outline_color` / `outline_w` | 单词描边颜色与宽度 |
 | `mean_outline_color` / `mean_outline_w` | 注释描边颜色与宽度 |
 | `phon_outline_color` / `phon_outline_w` | 发音描边颜色与宽度（AI 台词块同样跟随） |
+| `quote_hl_color` | AI 台词里命中当前单词的高亮色 |
 | `hint_color` / `hint_alpha` | 提示框颜色与透明度 |
 | `toolbar_pinned` / `show_dict_name` | 工具栏常显 / 显示词典名 |
 | `volume` / `gain` / `rate` / `voice` | 音量、增益、语速、语音模型 |
@@ -317,6 +332,9 @@ dotnet publish -c Release -r win-x64 --self-contained true
 | `learn` | **SRS 进度**：词典 → 单词 → `{stage, streak, learned, last_ok, due}` |
 | `ai_enabled` / `ai_base_url` / `ai_api_key` / `ai_model` | AI 台词配置（**API Key 为明文**，别连同配置一起分享） |
 | `ai_quotes` | 单词 → 台词缓存（`{quote, translation, movie, year}`） |
+| `webdav_url` / `webdav_dir` | WebDAV 服务器地址（默认坚果云）与远端目录 |
+| `webdav_user` / `webdav_pass` | WebDAV 账号与应用密码（**明文**保存，别分享配置文件） |
+| `webdav_auto` / `webdav_last` | 退出时自动备份 / 上次备份时间 |
 
 > 想重置学习进度，删除 `learn`（单词级 SRS）与 `progress`（当前学到哪）两个字段即可；程序与 Python 旧版的配置键名兼容，未知字段会原样保留。
 
@@ -341,14 +359,18 @@ float-word/
 │  ├─ Theme.cs                    Fluent 调色板与颜色工具
 │  ├─ app.manifest                清单：Per-Monitor V2 DPI 感知、Windows 10/11 兼容声明
 │  ├─ FloatWordWpf.csproj         项目文件（词典与 piper 作为内容输出）
+│  ├─ Assets/
+│  │  └─ floatword.ico            应用图标（窗口 / exe / 任务栏）
 │  ├─ Controls/
-│  │  ├─ WordCanvas.cs            单词绘制：逐字、描边、等宽槽位排版
-│  │  └─ OutlinedText.cs          释义 / 音标 / 台词：几何描边文本控件
+│  │  ├─ WordCanvas.cs            单词绘制：逐字、描边、等宽槽位排版、提示框缓动
+│  │  └─ OutlinedText.cs          释义 / 音标 / 台词：几何描边文本控件（支持单词高亮）
 │  ├─ Domain/
 │  │  ├─ AppSettings.cs           配置持久化 + SRS 状态机 + 台词缓存
 │  │  ├─ Dictionary.cs            词库加载 / 双格式解析 / 确定性打乱
 │  │  ├─ PiperService.cs          离线 TTS（常驻进程 + 增益）
 │  │  ├─ AiQuoteService.cs        AI 台词请求（OpenAI 兼容接口）
+│  │  ├─ WebDavService.cs         WebDAV 备份 / 恢复（默认坚果云）
+│  │  ├─ SoundFx.cs               答对「叮」提示音（程序内合成 WAV）
 │  │  └─ Log.cs                   轻量日志 `logs\floatword.log`（1 MB 轮转）
 │  ├─ Views/
 │  │  ├─ MainWindow.xaml(.cs)     悬浮窗：学习 / 本组默写 / 复习 与输入

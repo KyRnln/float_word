@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 // WPF-UI 里有和 WPF 同名的控件类型，这里只按需取别名，避免 Button/CheckBox 之类产生歧义
 using ControlAppearance = Wpf.Ui.Controls.ControlAppearance;
 using FluentButton = Wpf.Ui.Controls.Button;
@@ -33,6 +34,7 @@ public sealed class SettingsWindow : FluentWindow
     private readonly List<Action> _progressRefreshers = new();
     private ComboBox? _dictCombo;
     private readonly AiQuoteService _ai = new();
+    private TextBlock? _backupStatus;
 
     /// <summary>当前设置项的写入目标：普通项写 _body，折叠组内写组内的面板。</summary>
     private Panel _target = null!;
@@ -43,6 +45,8 @@ public sealed class SettingsWindow : FluentWindow
         _s = main.Settings;
 
         Title = "FloatWord 设置";
+        // 设置窗口是唯一有标题栏/任务栏存在的窗口，给它挂上应用图标
+        Icon = new BitmapImage(new Uri("pack://application:,,,/Assets/floatword.ico"));
         Width = 420;
         Height = 640;
         WindowStartupLocation = WindowStartupLocation.Manual;
@@ -124,10 +128,13 @@ public sealed class SettingsWindow : FluentWindow
         ProgressRow("已完成", () => Counts()[3], Total);
         Note("分母「合计」= 当前词典的总词汇数。复习（阶段 0）= 学习中、每天默写的单词；阶段 1 = 首次成功（10 天后复习）；阶段 2 = 二次成功（30 天后复习）；已完成 = 通过全部复习。");
 
-        // 词典模块紧跟在进度下方：切换词典即可看到该词典的进度
-        _dictCombo = Choice("词典", _main.Library.Select(d => d.Name).ToArray(),
-                            () => _s.Dict, v => { _main.ChangeDict(v); RefreshProgress(); });
-        ImportRow();
+        // 词典紧跟进度下方：切换词典即可看到该词典的进度
+        Group("词典", () =>
+        {
+            _dictCombo = Choice("词典", _main.Library.Select(d => d.Name).ToArray(),
+                                () => _s.Dict, v => { _main.ChangeDict(v); RefreshProgress(); });
+            ImportRow();
+        });
 
         Section("外观");
 
@@ -156,8 +163,8 @@ public sealed class SettingsWindow : FluentWindow
             ColorRow("描边颜色", Theme.OutlinePresets, () => _s.MeanOutlineColor, v => _s.MeanOutlineColor = v);
         });
 
-        // 发音（音标）
-        Group("发音", () =>
+        // 发音（音标）与 AI 台词共用这一组
+        Group("发音/台词", () =>
         {
             Choice("字体", Theme.FontChoices, () => _s.PhonFontFamily, v => _s.PhonFontFamily = v);
             SliderRow("字号", 8, 32, () => _s.PhonSize, v => _s.PhonSize = v);
@@ -165,7 +172,8 @@ public sealed class SettingsWindow : FluentWindow
             ColorRow("文字颜色", Theme.ColorPresets, () => _s.PhonColor, v => _s.PhonColor = v);
             SliderRow("描边宽度", 0, 8, () => _s.PhonOutlineW, v => _s.PhonOutlineW = v);
             ColorRow("描边颜色", Theme.OutlinePresets, () => _s.PhonOutlineColor, v => _s.PhonOutlineColor = v);
-            Note("AI 台词块（台词 / 翻译 / 片名 / 年份）也跟随这组设置。");
+            ColorRow("高亮词颜色", Theme.ColorPresets, () => _s.QuoteHlColor, v => _s.QuoteHlColor = v);
+            Note("AI 台词块（台词 / 翻译 / 片名 / 年份）也跟随这组设置；「高亮词颜色」用于台词里命中当前单词的部分。");
         });
 
         // 其余个性化项
@@ -177,44 +185,62 @@ public sealed class SettingsWindow : FluentWindow
             Check("工具栏常显（否则鼠标移入才显示）", () => _s.ToolbarPinned, v => _s.ToolbarPinned = v);
         });
 
-        Section("语音播报（Piper 离线神经语音）");
+        Section("其他设置");
 
-        var voices = PiperService.AvailableVoices();
-        if (voices.Length == 0)
+        Group("语音播报（Piper 离线神经语音）", () =>
         {
-            Note("未找到 Piper 引擎或语音模型：请确认程序目录下存在 piper\\bin\\piper.exe 与 piper\\voices\\*.onnx");
-        }
-        else
+            var voices = PiperService.AvailableVoices();
+            if (voices.Length == 0)
+            {
+                Note("未找到 Piper 引擎或语音模型：请确认程序目录下存在 piper\\bin\\piper.exe 与 piper\\voices\\*.onnx");
+            }
+            else
+            {
+                Choice("语音", voices, () => _s.Voice, v => _s.Voice = v);
+            }
+
+            SliderRow("播报音量", 0, 100, () => _s.Volume, v => _s.Volume = v);
+            SliderRow("播报增益 %", 100, 200, () => _s.Gain, v => _s.Gain = v);
+            SliderRow("播报语速", -10, 10, () => _s.Rate, v => _s.Rate = v);
+            Check("新单词自动播报", () => _s.Autoplay, v => _s.Autoplay = v);
+            Check("答对后播报一次", () => _s.SpeakCorrect, v => _s.SpeakCorrect = v);
+            Check("错误后播报一次", () => _s.SpeakWrong, v => _s.SpeakWrong = v);
+        });
+
+        Group("AI 台词（OpenAI 兼容接口）", () =>
         {
-            Choice("语音", voices, () => _s.Voice, v => _s.Voice = v);
-        }
+            Check("启用 AI 台词（学习模式，2 秒后用台词替换音标）", () => _s.AiEnabled, v => _s.AiEnabled = v);
+            TextRow("Base URL", () => _s.AiBaseUrl, v => _s.AiBaseUrl = v);
+            TextRow("API Key", () => _s.AiApiKey, v => _s.AiApiKey = v);
+            TextRow("模型", () => _s.AiModel, v => _s.AiModel = v);
+            Check("AI 请求走系统代理（OpenAI 等国外服务勾上；DeepSeek / 通义 / Ollama 等国内服务别勾）",
+                  () => _s.AiUseSystemProxy, v => _s.AiUseSystemProxy = v);
+            Note("为单词生成一句含该词的经典电影台词，格式「台词---电影名称」。仅在学习模式显示——" +
+                 "默写 / 复习不显示，避免台词带着答案。结果会缓存到配置文件，同一个词只请求一次；" +
+                 "API Key 以明文保存，请注意不要把它连同配置文件一起分享。");
+            Note("建议用普通对话模型（如 deepseek-chat，几百毫秒就返回）。" +
+                 "推理型模型（如 deepseek-flash / reasoner）会先输出一大段思考内容，" +
+                 "生成一句台词要 20~40 秒，台词会明显延迟出现。");
+            TestAiRow();
+            ClearQuoteRow();
+        });
 
-        SliderRow("播报音量", 0, 100, () => _s.Volume, v => _s.Volume = v);
-        SliderRow("播报增益 %", 100, 200, () => _s.Gain, v => _s.Gain = v);
-        SliderRow("播报语速", -10, 10, () => _s.Rate, v => _s.Rate = v);
-        Check("新单词自动播报", () => _s.Autoplay, v => _s.Autoplay = v);
-        Check("答对后播报一次", () => _s.SpeakCorrect, v => _s.SpeakCorrect = v);
-        Check("错误后播报一次", () => _s.SpeakWrong, v => _s.SpeakWrong = v);
+        Group("数据备份（WebDAV）", () =>
+        {
+            Check("退出程序时自动备份（未填账号密码时自动跳过）", () => _s.WebDavAuto, v => _s.WebDavAuto = v);
+            TextRow("服务器地址", () => _s.WebDavUrl, v => _s.WebDavUrl = v);
+            TextRow("账号", () => _s.WebDavUser, v => _s.WebDavUser = v);
+            TextRow("应用密码", () => _s.WebDavPass, v => _s.WebDavPass = v);
+            TextRow("远程目录", () => _s.WebDavDir, v => _s.WebDavDir = v);
+            WebDavRow();
+            BackupStatusRow();
 
-        Section("AI 台词（OpenAI 兼容接口）");
-
-        Check("启用 AI 台词（学习模式，2 秒后用台词替换音标）", () => _s.AiEnabled, v => _s.AiEnabled = v);
-        TextRow("Base URL", () => _s.AiBaseUrl, v => _s.AiBaseUrl = v);
-        TextRow("API Key", () => _s.AiApiKey, v => _s.AiApiKey = v);
-        TextRow("模型", () => _s.AiModel, v => _s.AiModel = v);
-        Check("AI 请求走系统代理（OpenAI 等国外服务勾上；DeepSeek / 通义 / Ollama 等国内服务别勾）",
-              () => _s.AiUseSystemProxy, v => _s.AiUseSystemProxy = v);
-        Note("为单词生成一句含该词的经典电影台词，格式「台词---电影名称」。仅在学习模式显示——" +
-             "默写 / 复习不显示，避免台词带着答案。结果会缓存到配置文件，同一个词只请求一次；" +
-             "API Key 以明文保存，请注意不要把它连同配置文件一起分享。");
-        Note("建议用普通对话模型（如 deepseek-chat，几百毫秒就返回）。" +
-             "推理型模型（如 deepseek-flash / reasoner）会先输出一大段思考内容，" +
-             "生成一句台词要 20~40 秒，台词会明显延迟出现。");
-        TestAiRow();
-
-        Note("提示：鼠标移入悬浮窗显示工具栏；点击窗口后直接在单词上逐字输入；← → 切换单词。");
-        Note("WPF 版使用真 per-pixel alpha，半透明背景下文字边缘也不会有毛边，因此不需要「清晰文字」开关。");
-        Note($"设置自动保存在 {AppPaths.ConfigFile}");
+            Note("把「设置 + 全部学习进度」（含每个词的 SRS 阶段、连续天数）打包成备份文件传到 WebDAV 网盘，" +
+                 "换电脑或重装后一键恢复。远端文件名固定为 " + WebDavService.FileName + "。");
+            Note("坚果云：先在网页端「账户信息 → 安全选项 → 添加应用密码」，把生成的密码填进「应用密码」——" +
+                 "登录密码对 WebDAV 无效。服务器地址已默认填好，不用改。");
+            Note("「从云端恢复」会覆盖本地数据并自动重启程序。应用密码以明文保存在配置文件里，别把配置分享给别人。");
+        });
 
         Section("日志");
         LogRow();
@@ -271,10 +297,18 @@ public sealed class SettingsWindow : FluentWindow
     /// </summary>
     private void Group(string title, Action build)
     {
-        var panel = new StackPanel
+        var panel = new StackPanel();
+
+        // 展开时用一圈细边框把内容整体框住；折叠后边框随内容一起隐藏
+        var frame = new Border
         {
-            Margin = new Thickness(6, 2, 0, 8),
-            Visibility = Visibility.Collapsed
+            BorderBrush = Theme.Brush(Theme.CardStroke),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(10, 8, 10, 4),
+            Margin = new Thickness(0, 2, 0, 8),
+            Visibility = Visibility.Collapsed,
+            Child = panel
         };
 
         var arrow = new TextBlock
@@ -311,13 +345,13 @@ public sealed class SettingsWindow : FluentWindow
         };
         header.Click += (_, _) =>
         {
-            bool open = panel.Visibility != Visibility.Visible;
-            panel.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+            bool open = frame.Visibility != Visibility.Visible;
+            frame.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
             arrow.Text = open ? "\uE70D" : "\uE76C";                // ChevronDown / ChevronRight
         };
 
         _target.Children.Add(header);
-        _target.Children.Add(panel);
+        _target.Children.Add(frame);
 
         var prev = _target;
         _target = panel;
@@ -353,7 +387,8 @@ public sealed class SettingsWindow : FluentWindow
             FontSize = 12,
             Width = 32,
             TextAlignment = TextAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 0, 0)
         };
         val.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorSecondaryBrush");
 
@@ -363,7 +398,9 @@ public sealed class SettingsWindow : FluentWindow
             Maximum = max,
             Value = Math.Clamp(get(), min, max),
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(8, 0, 8, 0),
+            // 不设左右外边距：否则轨道两端会各留 8px 空隙，够不到单元格边缘
+            Margin = new Thickness(0),
+            Padding = new Thickness(0),
             IsSnapToTickEnabled = true,
             TickFrequency = 1
         };
@@ -676,6 +713,38 @@ public sealed class SettingsWindow : FluentWindow
         g.Children.Add(btn);
     }
 
+    /// <summary>清空 AI 台词缓存：只删台词，不动学习进度；清空后当前词会重新请求。</summary>
+    private void ClearQuoteRow()
+    {
+        var g = NewRow();
+        var btn = new FluentButton
+        {
+            Content = "清空台词缓存…",
+            Appearance = ControlAppearance.Secondary,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            MinWidth = 130,
+            FontFamily = TextFont,
+            FontSize = 13
+        };
+        btn.Click += async (_, _) =>
+        {
+            bool ok = await Confirm(
+                "确定要清空全部 AI 台词缓存吗？\n\n" +
+                "清空后单词会重新向 AI 请求台词（会重新消耗 API 额度）。\n" +
+                "学习进度、外观等其他设置不受影响。",
+                "清空台词缓存", "清空");
+            if (!ok) return;
+
+            _s.ClearAiQuotes();
+            _main.RefreshAiQuote();     // 作废当前词的台词，立即重新请求
+            Log.Info("用户清空了 AI 台词缓存");
+            await Info("台词缓存已清空，当前单词会重新获取台词。");
+        };
+        Grid.SetColumn(btn, 0);
+        Grid.SetColumnSpan(btn, 3);
+        g.Children.Add(btn);
+    }
+
     /// <summary>弹窗自身出问题也不能把程序带崩（异常会被全局日志兜住）。</summary>
     private async Task ShowResultAsync(string message, string title)
     {
@@ -724,8 +793,125 @@ public sealed class SettingsWindow : FluentWindow
         Grid.SetColumn(btn, 0);
         Grid.SetColumnSpan(btn, 3);
         g.Children.Add(btn);
+    }
 
-        Note("崩溃、AI 调用等现场都记在这里（超过 1MB 会轮换成 .log.1）：" + Log.FilePath);
+    // ---------- WebDAV 数据备份 ----------
+
+    private void WebDavRow()
+    {
+        var g = NewRow();
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+
+        row.Children.Add(SmallButton("测试连接…", ControlAppearance.Secondary, TestWebDavAsync));
+        row.Children.Add(SmallButton("立即备份", ControlAppearance.Primary, BackupNowAsync));
+        row.Children.Add(SmallButton("从云端恢复…", ControlAppearance.Danger, RestoreNowAsync));
+
+        Grid.SetColumn(row, 0);
+        Grid.SetColumnSpan(row, 3);
+        g.Children.Add(row);
+    }
+
+    /// <summary>三个按钮共用：执行期间禁用自身，出错也不把设置窗口带崩。</summary>
+    private FluentButton SmallButton(string text, ControlAppearance look, Func<Task> click)
+    {
+        var b = new FluentButton
+        {
+            Content = text,
+            Appearance = look,
+            MinWidth = 104,
+            Margin = new Thickness(0, 0, 8, 0),
+            FontFamily = TextFont,
+            FontSize = 13
+        };
+        b.Click += async (_, _) =>
+        {
+            b.IsEnabled = false;
+            try { await click(); }
+            catch (Exception ex)
+            {
+                Log.Error("WebDAV 操作失败", ex);
+                await ShowResultAsync("操作出错：\n\n" + ex.Message, "数据备份");
+            }
+            finally { b.IsEnabled = true; }
+        };
+        return b;
+    }
+
+    private void BackupStatusRow()
+    {
+        _backupStatus = new TextBlock
+        {
+            FontFamily = TextFont,
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+        _backupStatus.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorTertiaryBrush");
+        _target.Children.Add(_backupStatus);
+        UpdateBackupStatus();
+    }
+
+    private void UpdateBackupStatus()
+    {
+        if (_backupStatus is null) return;
+        _backupStatus.Text = string.IsNullOrWhiteSpace(_s.WebDavLast)
+            ? "上次备份：从未"
+            : "上次备份：" + _s.WebDavLast;
+    }
+
+    private async Task TestWebDavAsync()
+    {
+        var r = await WebDavService.TestAsync(_s);
+        Log.Info("WebDAV 测试：" + r.Message);
+        await ShowResultAsync(r.Ok ? r.Message : "连接失败：\n\n" + r.Message, "WebDAV 测试");
+    }
+
+    private async Task BackupNowAsync()
+    {
+        // 先把「学到哪、当前复习队列」等会话状态写回配置，保证备份的是最新进度
+        _main.SyncToSettings();
+
+        var r = await WebDavService.UploadAsync(_s, _s.ToJson());
+        if (r.Ok)
+        {
+            _s.WebDavLast = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            _main.SyncToSettings();     // 落盘（含刚写的时间戳）
+            UpdateBackupStatus();
+        }
+
+        await ShowResultAsync(r.Ok ? "备份成功。\n\n" + "上次备份：" + _s.WebDavLast
+                                   : "备份失败：\n\n" + r.Message,
+                              "WebDAV 备份");
+    }
+
+    private async Task RestoreNowAsync()
+    {
+        bool ok = await Confirm(
+            "确定要用云端备份覆盖本地数据吗？\n\n" +
+            "即将被覆盖：\n" +
+            "· 全部外观 / 发音 / AI 等设置\n" +
+            "· 各词典的学习位置与所有单词的复习进度\n\n" +
+            "覆盖后程序会自动重启。此操作无法撤销。",
+            "从云端恢复", "覆盖并重启");
+        if (!ok) return;
+
+        var (r, json) = await WebDavService.DownloadAsync(_s);
+        if (!r.Ok || string.IsNullOrWhiteSpace(json))
+        {
+            await ShowResultAsync("恢复失败：\n\n" + r.Message, "WebDAV 恢复");
+            return;
+        }
+
+        // 先校验能解析成合法配置，避免把坏数据写进去导致下次启动异常
+        if (AppSettings.Parse(json!) is null)
+        {
+            Log.Warn("WebDAV 恢复：云端文件不是有效的配置，已放弃");
+            await ShowResultAsync("云端文件不是有效的 FloatWord 配置，已放弃恢复。", "WebDAV 恢复");
+            return;
+        }
+
+        Log.Info("WebDAV 恢复：校验通过，重启应用以应用新配置");
+        _main.RestoreAndRestart(json!);
     }
 
     // 用 WPF-UI 的 Fluent 对话框，避免系统原生（白底）弹窗在深色界面里突兀

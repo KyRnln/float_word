@@ -30,10 +30,17 @@ public sealed class AiQuoteService
     private static HttpClient NewClient(bool useProxy) =>
         new(new HttpClientHandler { UseProxy = useProxy }) { Timeout = TimeSpan.FromSeconds(60) };
 
-    private const string SystemPrompt =
+    // 台词长度上限（按英文单词数）：提示模型尽量 20 词内，超过 40 词的硬截断，
+    // 避免台词过长把悬浮窗撑得很宽，影响观感。
+    private const int PreferQuoteWords = 20;
+    private const int MaxQuoteWords = 40;
+
+    private static readonly string SystemPrompt =
         "你是英语学习助手。请为给定的英文单词找一句包含该单词的经典电影台词。" +
+        $"台词要尽量简短：优先 {PreferQuoteWords} 个单词以内，任何情况下都不要超过 {MaxQuoteWords} 个单词。" +
         "只输出一个 JSON 对象，不要输出 markdown 代码块、不要任何解释，格式：" +
-        "{\"quote\":\"英文台词原文\",\"translation\":\"台词的中文翻译\"," +
+        "{\"quote\":\"英文台词原文（尽量短，最多 " + MaxQuoteWords + " 个单词）\"," +
+        "\"translation\":\"台词的中文翻译（同样简洁）\"," +
         "\"movie\":\"电影的中文片名（不要书名号）\",\"year\":\"上映年份，4 位数字\"}";
 
     private static readonly JsonSerializerOptions ParseOptions = new() { PropertyNameCaseInsensitive = true };
@@ -51,7 +58,12 @@ public sealed class AiQuoteService
     /// <summary>取台词。useCache=false 时忽略缓存（用于设置页的「测试」）。取消时抛出 OperationCanceledException。</summary>
     public async Task<AiQuoteOutcome> FetchAsync(string word, AppSettings s, CancellationToken ct, bool useCache = true)
     {
-        if (useCache && s.GetAiQuote(word) is { } cached) return new(cached, null);
+        // 缓存里可能是限长之前存下的长台词，读出来也统一截断，保证显示一致
+        if (useCache && s.GetAiQuote(word) is { } cached)
+        {
+            cached.Quote = ClampWords(cached.Quote);
+            return new(cached, null);
+        }
 
         if (MissingConfig(s) is { } missing) return new(null, missing);
 
@@ -164,11 +176,11 @@ public sealed class AiQuoteService
 
         if (q is null)
         {
-            var fallback = Clean(raw);
+            var fallback = ClampWords(Clean(raw));
             return fallback.Length == 0 ? null : new MovieQuote { Quote = fallback };
         }
 
-        q.Quote = Clean(q.Quote);
+        q.Quote = ClampWords(Clean(q.Quote));
         q.Translation = Clean(q.Translation);
         q.Movie = Clean(q.Movie);
         q.Year = Clean(q.Year);
@@ -178,6 +190,16 @@ public sealed class AiQuoteService
     /// <summary>压成单行（换行 / 连续空白都并成一个空格）。</summary>
     private static string Clean(string? s) =>
         string.IsNullOrWhiteSpace(s) ? "" : Regex.Replace(s, @"\s+", " ").Trim();
+
+    /// <summary>台词按空格计词，超过 <see cref="MaxQuoteWords"/> 词就截断并加省略号。</summary>
+    private static string ClampWords(string s)
+    {
+        if (s.Length == 0) return s;
+        var words = s.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return words.Length <= MaxQuoteWords
+            ? s
+            : string.Join(' ', words.Take(MaxQuoteWords)) + "…";
+    }
 
     /// <summary>截断长文本，便于塞进一行提示里。</summary>
     private static string Brief(string s)

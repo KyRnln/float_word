@@ -1,6 +1,8 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 
 namespace FloatWordWpf;
@@ -18,6 +20,10 @@ public partial class MainWindow : Window
 
     /// <summary>显示单词多久后，用 AI 台词替换音标（毫秒）。</summary>
     private const int AiQuoteDelayMs = 2000;
+
+    /// <summary>换词时单词从右侧滑入的距离（像素）与时长（毫秒）。</summary>
+    private const double WordSlideFrom = 44;
+    private const int WordSlideMs = 260;
 
     private enum Phase
     {
@@ -57,11 +63,14 @@ public partial class MainWindow : Window
     private string _aiWord = "";     // 已为哪个词发起过台词请求
     private MovieQuote? _aiQuote;    // 当前要显示的台词（null = 仍显示音标）
     private string _aiSignature = "\u0000";   // AI 配置指纹：变了就作废当前台词重新请求
+    private string _shownWord = "\u0000";     // 上一次渲染的单词：变化时播「从右向左」滑入
 
     private bool _hintHeld;          // 提示按钮是否正被按住（按住显示答案）
     private bool _hintUsed;          // 本词是否用过提示（用提示会清零连续天数）
     private string _verdict = "";    // 上一次复习判定结果（留到下次输入前）
     private bool _verdictBad;        // 判定结果是否为负向（用提示 / 默写错误）
+
+    private bool _skipSaveOnClose;   // 恢复备份后重启时用：别让关闭时的保存盖掉刚恢复的配置
 
     public MainWindow(AppSettings settings, List<WordDictionary> library)
     {
@@ -191,6 +200,7 @@ public partial class MainWindow : Window
         QuoteLeft.TextMaxWidth = textLimit * 0.62;
         QuoteMovie.TextMaxWidth = textLimit * 0.38;
         QuoteYear.TextMaxWidth = textLimit * 0.38;
+        QuoteLeft.HighlightBrush = Theme.Brush(_s.QuoteHlColor);   // 台词里命中当前单词的高亮色
 
         Word.FontFamilyName = _s.FontFamily;
         Word.FontSize = _s.FontSize;
@@ -347,6 +357,7 @@ public partial class MainWindow : Window
         if (showQuote)
         {
             QuoteLeft.Text = _aiQuote!.LeftLines();     // 左列：台词 + 翻译
+            QuoteLeft.HighlightText = w.Word;           // 在台词里高亮当前单词（含词形变化）
             QuoteMovie.Text = _aiQuote.MovieLine();     // 右列上行：《片名》
             QuoteYear.Text = _aiQuote.YearLine();       // 右列下行：（年份），居中于片名之下
             // 没有片名时右列是空的，分隔点也就没有存在的意义
@@ -358,17 +369,38 @@ public partial class MainWindow : Window
             Phon.TextBrush = revealed ? Theme.Brush(_s.PhonColor) : Theme.Brush(Theme.Muted);
         }
 
+        // 换到别的单词时，让单词从右侧缓动滑入（渲染变换，不影响居中与窗口测量）
+        bool wordChanged = w.Word != _shownWord;
+        _shownWord = w.Word;
+
         // 默写/复习用等宽槽位排版（占位横线等宽、间距一致）；学习模式按字母真实宽度
         Word.UniformCells = _phase != Phase.Study;
-        Word.Word = w.Word;
+        // 顺序要紧：先写 Typed 再写 Word —— Word 会触发 Relayout，把待输入框瞬间归位到新词；
+        // 若反序，会先用旧词的格子播一次无意义的滑动动画。
         Word.Typed = _typed;
+        Word.Word = w.Word;
         Word.Reveal = revealed;
         Word.Error = false;
 
         // 提示按钮只在复习模式下出现
         HintBtn.Visibility = _phase == Phase.Review ? Visibility.Visible : Visibility.Collapsed;
 
+        if (wordChanged) SlideWordIn();
         KeepCenterLater();
+    }
+
+    /// <summary>换词时让单词从右向左缓动滑入。</summary>
+    private void SlideWordIn()
+    {
+        var tt = new TranslateTransform(WordSlideFrom, 0);
+        Word.RenderTransform = tt;
+        tt.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation
+        {
+            From = WordSlideFrom,
+            To = 0,
+            Duration = new Duration(TimeSpan.FromMilliseconds(WordSlideMs)),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        });
     }
 
     private void Remember()
@@ -413,6 +445,16 @@ public partial class MainWindow : Window
         _aiWord = "";
         _aiQuote = null;
         _aiCts?.Cancel();
+    }
+
+    /// <summary>清空台词缓存后调用：作废当前词的台词并重新请求（不影响学习进度）。</summary>
+    public void RefreshAiQuote()
+    {
+        _aiWord = "";        // 置空后 UpdateAiState 会当作"换词"重新发起请求
+        _aiQuote = null;
+        _aiCts?.Cancel();
+        Render();
+        ScheduleSave();      // 让清空后的缓存落盘
     }
 
     private async Task RunAiQuoteAsync(WordItem w, CancellationTokenSource cts)
@@ -607,6 +649,7 @@ public partial class MainWindow : Window
         _verdictBad = false;
         Feedback.Text = "✓ 正确";
         Feedback.Foreground = Theme.Brush(Theme.Green);
+        SoundFx.PlayDing();                 // 拼写正确的「叮」声反馈
         if (_s.SpeakCorrect) Speak();
 
         if (_phase != Phase.Study && Current is { } c)
@@ -965,9 +1008,80 @@ public partial class MainWindow : Window
     private void OnWindowClosed(object? sender, EventArgs e)
     {
         _aiCts?.Cancel();
-        Remember();
-        _saveTimer.Stop();
-        _s.Save(AppPaths.ConfigFile);
+
+        // 恢复备份后重启时跳过保存：此时文件里已经是新配置，这里写会把旧的内存状态盖回去
+        if (!_skipSaveOnClose)
+        {
+            Remember();
+            _saveTimer.Stop();
+            _s.Save(AppPaths.ConfigFile);
+            AutoBackup();
+        }
+
         _tts.Dispose();
+    }
+
+    /// <summary>把当前会话状态（学到哪、当前词典）写回配置并落盘。设置页备份前会调它。</summary>
+    public void SyncToSettings()
+    {
+        Remember();              // _index -> _s
+        _saveTimer.Stop();       // 不等防抖，直接落盘
+        _s.Save(AppPaths.ConfigFile);
+    }
+
+    /// <summary>
+    /// 用下载回来的配置覆盖本地并重启程序 —— 重启才能让悬浮窗与设置页都按新配置重建。
+    /// </summary>
+    public void RestoreAndRestart(string json)
+    {
+        _skipSaveOnClose = true;
+        _aiCts?.Cancel();
+        _saveTimer.Stop();
+
+        try { File.WriteAllText(AppPaths.ConfigFile, json); }
+        catch (Exception ex) { Log.Error("写入恢复的配置失败", ex); }
+
+        try
+        {
+            var exe = Environment.ProcessPath;
+            if (!string.IsNullOrEmpty(exe))
+                System.Diagnostics.Process.Start(
+                    new System.Diagnostics.ProcessStartInfo(exe) { UseShellExecute = true });
+        }
+        catch (Exception ex) { Log.Error("重启程序失败", ex); }
+
+        Application.Current.Shutdown();
+    }
+
+    /// <summary>
+    /// 退出时自动备份到 WebDAV。同步等待最多 8 秒，失败只记日志、不打扰用户。
+    /// </summary>
+    private void AutoBackup()
+    {
+        if (!_s.WebDavAuto || !WebDavService.Configured(_s, out _)) return;
+
+        var json = _s.ToJson();   // 在 UI 线程先取快照，避免后台线程读到半途状态
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        try
+        {
+            // 这里要阻塞 UI 线程等结果，所以必须丢到线程池执行：直接 await 会死锁
+            var t = Task.Run(() => WebDavService.UploadAsync(_s, json, cts.Token));
+            if (!t.Wait(TimeSpan.FromSeconds(8)))
+            {
+                cts.Cancel();
+                Log.Warn("退出自动备份超时，已放弃");
+                return;
+            }
+
+            if (t.Result.Ok)
+            {
+                _s.WebDavLast = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                _s.Save(AppPaths.ConfigFile);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("退出自动备份失败", ex);
+        }
     }
 }

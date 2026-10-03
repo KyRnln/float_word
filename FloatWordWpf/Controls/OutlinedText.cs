@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Media;
 
@@ -47,6 +48,24 @@ public class OutlinedText : FrameworkElement
     public Brush TextBrush { get => _textBrush; set { _textBrush = value; InvalidateVisual(); } }
     public Brush OutlineBrush { get => _outlineBrush; set { _outlineBrush = value; InvalidateVisual(); } }
 
+    private string _highlightText = "";
+    private Brush _highlightBrush = Theme.Brush(Theme.Accent);
+    private readonly List<(int Start, int Length)> _hlRanges = new();
+
+    /// <summary>要高亮的单词：按词匹配（忽略大小写，含其变形，如 abandon → abandoned）。空则不启用。</summary>
+    public string HighlightText
+    {
+        get => _highlightText;
+        set { if (_highlightText != value) { _highlightText = value; Relayout(); } }
+    }
+
+    /// <summary>命中单词的上色画笔（只影响上色，改完重绘即可）。</summary>
+    public Brush HighlightBrush
+    {
+        get => _highlightBrush;
+        set { _highlightBrush = value; InvalidateVisual(); }
+    }
+
     private Typeface Face() =>
         new(new FontFamily(FontFamilyName), FontStyles.Normal,
             Bold ? FontWeights.Bold : FontWeights.Normal, FontStretches.Normal);
@@ -72,6 +91,7 @@ public class OutlinedText : FrameworkElement
         if (string.IsNullOrEmpty(_text))
         {
             _ft = null;
+            _hlRanges.Clear();
             _size = new Size(0, 0);
             InvalidateMeasure();
             InvalidateVisual();
@@ -91,6 +111,7 @@ public class OutlinedText : FrameworkElement
         if (geo is null)
         {
             _ft = null;
+            _hlRanges.Clear();
             _size = new Size(0, 0);
             InvalidateMeasure();
             InvalidateVisual();
@@ -101,6 +122,7 @@ public class OutlinedText : FrameworkElement
         double top = Math.Min(0, b.Top);      // 墨迹可能高于行顶（重音符号等）
 
         _ft = ft;
+        ComputeHighlight();
         _dx = -b.Left + OutlineWidth;
         _dy = OutlineWidth - top;
         _size = new Size(b.Width + pad, ft.Height - top + pad);
@@ -110,6 +132,17 @@ public class OutlinedText : FrameworkElement
     }
 
     protected override Size MeasureOverride(Size availableSize) => _size;
+
+    /// <summary>找出文本里命中 <see cref="HighlightText"/> 的区间（忽略大小写，含词形变化）。</summary>
+    private void ComputeHighlight()
+    {
+        _hlRanges.Clear();
+        if (_highlightText.Length == 0 || _text.Length == 0) return;
+
+        var pattern = @"\b" + Regex.Escape(_highlightText) + @"\w*";
+        foreach (Match m in Regex.Matches(_text, pattern, RegexOptions.IgnoreCase))
+            if (m.Length > 0) _hlRanges.Add((m.Index, m.Length));
+    }
 
     protected override void OnRender(DrawingContext dc)
     {
@@ -121,6 +154,18 @@ public class OutlinedText : FrameworkElement
 
         if (OutlineWidth > 0)
             dc.DrawGeometry(null, new Pen(OutlineBrush, OutlineWidth) { LineJoin = PenLineJoin.Round }, geo);
-        dc.DrawGeometry(TextBrush, null, geo);
+
+        if (_hlRanges.Count == 0)
+        {
+            dc.DrawGeometry(TextBrush, null, geo);
+            return;
+        }
+
+        // 有高亮时：描边仍用上面的几何路径，填色改为逐段上色后整段绘制。
+        // 先把整段恢复成常规颜色，再覆盖命中区间，避免上一次的高亮残留。
+        _ft.SetForegroundBrush(TextBrush);
+        foreach (var (start, len) in _hlRanges)
+            _ft.SetForegroundBrush(HighlightBrush, start, len);
+        dc.DrawText(_ft, new Point(_dx, _dy));
     }
 }

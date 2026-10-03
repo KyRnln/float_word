@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 
 namespace FloatWordWpf;
 
@@ -14,6 +15,9 @@ namespace FloatWordWpf;
 /// </summary>
 public class WordCanvas : FrameworkElement
 {
+    /// <summary>提示框横向移动的动画时长（毫秒）。</summary>
+    private const int HintAnimMs = 170;
+
     private readonly List<double> _cellX = new();
     private readonly List<double> _cellW = new();
     private double _lineHeight;
@@ -28,7 +32,17 @@ public class WordCanvas : FrameworkElement
     private double _outlineWidth = 2;
 
     public string Word { get => _word; set { if (_word != value) { _word = value; Relayout(); } } }
-    public int Typed { get => _typed; set { if (_typed != value) { _typed = value; InvalidateVisual(); } } }
+    public int Typed
+    {
+        get => _typed;
+        set
+        {
+            if (_typed == value) return;
+            _typed = value;
+            AnimateHint();      // 待输入框横向缓动滑到新的一格
+            InvalidateVisual();
+        }
+    }
     public bool Reveal { get => _reveal; set { if (_reveal != value) { _reveal = value; InvalidateVisual(); } } }
     public bool Error { get => _error; set { if (_error != value) { _error = value; InvalidateVisual(); } } }
 
@@ -47,6 +61,47 @@ public class WordCanvas : FrameworkElement
     public Brush MutedBrush { get; set; } = Theme.Brush(Theme.Muted);
     public Brush HintBrush { get; set; } = Theme.Brush(Theme.BgSoft);
     public Brush OutlineBrush { get; set; } = Brushes.Black;
+
+    // 待输入框的位置与宽度做成依赖属性，才能用 DoubleAnimation 做缓动。
+    public static readonly DependencyProperty HintXProperty =
+        DependencyProperty.Register(nameof(HintX), typeof(double), typeof(WordCanvas),
+            new FrameworkPropertyMetadata(0.0, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    public static readonly DependencyProperty HintWProperty =
+        DependencyProperty.Register(nameof(HintW), typeof(double), typeof(WordCanvas),
+            new FrameworkPropertyMetadata(0.0, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    public double HintX
+    {
+        get => (double)GetValue(HintXProperty);
+        set => SetValue(HintXProperty, value);
+    }
+
+    public double HintW
+    {
+        get => (double)GetValue(HintWProperty);
+        set => SetValue(HintWProperty, value);
+    }
+
+    /// <summary>把待输入框瞬间定位到当前格，不做动画（换词 / 改字体时用）。</summary>
+    private void SnapHint()
+    {
+        BeginAnimation(HintXProperty, null);
+        BeginAnimation(HintWProperty, null);
+        if (_cellX.Count == 0 || _typed < 0 || _typed >= _cellX.Count) return;
+        HintX = _cellX[_typed];
+        HintW = _cellW[_typed];
+    }
+
+    /// <summary>待输入框从上一格缓动滑到当前格。</summary>
+    private void AnimateHint()
+    {
+        if (_cellX.Count == 0 || _typed < 0 || _typed >= _cellX.Count) return;
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var dur = new Duration(TimeSpan.FromMilliseconds(HintAnimMs));
+        BeginAnimation(HintXProperty, new DoubleAnimation(_cellX[_typed], dur) { EasingFunction = ease });
+        BeginAnimation(HintWProperty, new DoubleAnimation(_cellW[_typed], dur) { EasingFunction = ease });
+    }
 
     private Typeface Face() =>
         new(new FontFamily(FontFamilyName), FontStyles.Normal,
@@ -112,6 +167,7 @@ public class WordCanvas : FrameworkElement
 
         InvalidateMeasure();
         InvalidateVisual();
+        SnapHint();     // 换词 / 改字体后立刻归位，不播滑动动画
     }
 
     protected override Size MeasureOverride(Size availableSize)
@@ -133,10 +189,10 @@ public class WordCanvas : FrameworkElement
             double x = _cellX[i];
             double y = OutlineWidth;
 
-            // 当前待输入位置的高亮块（Fluent 风格：4px 圆角）
+            // 当前待输入位置的高亮块（Fluent 风格：4px 圆角），位置与宽度带缓动
             if (!Error && i == Typed && Typed < _cellX.Count)
                 dc.DrawRoundedRectangle(HintBrush, null,
-                    new Rect(x, y, _cellW[i], _lineHeight), 4, 4);
+                    new Rect(HintX, y, Math.Max(HintW, 0), _lineHeight), 4, 4);
 
             bool done = i < Typed;
             // 已输入的正确字符、或已揭示答案时显示字母；否则显示占位

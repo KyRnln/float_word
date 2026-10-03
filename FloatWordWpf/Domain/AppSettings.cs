@@ -25,6 +25,8 @@ public sealed class AppSettings
     [JsonPropertyName("phon_color")] public string PhonColor { get; set; } = Theme.Accent;
     [JsonPropertyName("phon_font_family")] public string PhonFontFamily { get; set; } = "Segoe UI Variable Text";
     [JsonPropertyName("phon_bold")] public bool PhonBold { get; set; }
+    /// <summary>AI 台词里命中当前单词时的高亮色（跟随「发音/台词」组）。</summary>
+    [JsonPropertyName("quote_hl_color")] public string QuoteHlColor { get; set; } = "#FCE100";
     [JsonPropertyName("mean_size")] public double MeanSize { get; set; } = 25;
     [JsonPropertyName("mean_outline_w")] public double MeanOutlineW { get; set; } = 1;
     [JsonPropertyName("mean_outline_color")] public string MeanOutlineColor { get; set; } = "#1F1F1F";
@@ -72,6 +74,20 @@ public sealed class AppSettings
     /// </remarks>
     [JsonPropertyName("ai_quotes")]
     public Dictionary<string, MovieQuote> AiQuotes { get; set; } = new();
+
+    // ---------- WebDAV 数据备份 ----------
+    /// <summary>WebDAV 服务器根地址。默认坚果云。</summary>
+    [JsonPropertyName("webdav_url")] public string WebDavUrl { get; set; } = WebDavService.NutstoreUrl;
+    /// <summary>备份文件所在的远端目录（自动创建）。</summary>
+    [JsonPropertyName("webdav_dir")] public string WebDavDir { get; set; } = "floatword";
+    /// <summary>WebDAV 账号。坚果云填登录邮箱。</summary>
+    [JsonPropertyName("webdav_user")] public string WebDavUser { get; set; } = "";
+    /// <summary>WebDAV 密码。坚果云用网页端生成的「应用密码」，不是登录密码。</summary>
+    [JsonPropertyName("webdav_pass")] public string WebDavPass { get; set; } = "";
+    /// <summary>退出程序时自动把配置备份上去（未填账号密码时自动跳过）。</summary>
+    [JsonPropertyName("webdav_auto")] public bool WebDavAuto { get; set; } = true;
+    /// <summary>上次成功备份的时间，仅用于显示。</summary>
+    [JsonPropertyName("webdav_last")] public string WebDavLast { get; set; } = "";
 
     // ---- 学习进度： 词典 -> 模式 -> 下标 ----
     [JsonPropertyName("progress")]
@@ -140,12 +156,22 @@ public sealed class AppSettings
     {
         try
         {
-            File.WriteAllText(path, JsonSerializer.Serialize(this, Options));
+            File.WriteAllText(path, ToJson());
         }
         catch
         {
             // 写盘失败（例如目录只读）不应影响使用
         }
+    }
+
+    /// <summary>序列化成配置文件的内容（WebDAV 备份也用它，保证与本地文件完全一致）。</summary>
+    public string ToJson() => JsonSerializer.Serialize(this, Options);
+
+    /// <summary>把 JSON 文本解析成配置，失败返回 null（用于校验 WebDAV 备份内容是否可用）。</summary>
+    public static AppSettings? Parse(string json)
+    {
+        try { return JsonSerializer.Deserialize<AppSettings>(json, Options); }
+        catch { return null; }
     }
 
     // ---------- 进度 ----------
@@ -184,6 +210,9 @@ public sealed class AppSettings
         AiQuotes.TryGetValue(word, out var q) && q.HasContent ? q : null;
 
     public void SetAiQuote(string word, MovieQuote quote) => AiQuotes[word] = quote;
+
+    /// <summary>清空全部 AI 台词缓存（不影响学习进度与外观设置），下次显示时重新请求。</summary>
+    public void ClearAiQuotes() => AiQuotes.Clear();
 
     /// <summary>学习模式下打过卡：进入阶段 0（学习中），记录学习日期。已有进度则不覆盖。</summary>
     public void MarkLearned(string dict, string word)

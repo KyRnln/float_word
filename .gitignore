@@ -10,6 +10,10 @@
 /FloatWordWpf/bin/
 /FloatWordWpf/obj/
 
+# ---- 发布产物 ----
+# 自包含单文件 exe（约 260 MB，含 .NET 运行时 + Piper 语音），靠源码重新 publish 即可
+/publish/
+
 # ---- IDE / 编辑器 ----
 .vs/
 .idea/

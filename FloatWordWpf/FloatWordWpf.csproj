@@ -9,7 +9,14 @@
     <AssemblyName>FloatWord</AssemblyName>
     <RootNamespace>FloatWordWpf</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- 应用图标：exe 的文件图标 / 任务栏图标 -->
+    <ApplicationIcon>Assets\floatword.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 同一个 ico 作为资源打包，供窗口的 Window.Icon 使用 -->
+    <Resource Include="Assets\floatword.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- 词库 -->
