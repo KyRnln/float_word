@@ -1,0 +1,125 @@
+<Window x:Class="FloatWordWpf.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:FloatWordWpf"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        Title="FloatWord"
+        MinWidth="320"
+        SizeToContent="WidthAndHeight"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        WindowStartupLocation="Manual"
+        FontFamily="Segoe UI Variable Text, Segoe UI"
+        TextOptions.TextFormattingMode="Ideal"
+        TextOptions.TextRenderingMode="Grayscale"
+        PreviewKeyDown="OnWindowKey"
+        MouseLeftButtonDown="OnWindowMouseDown"
+        MouseEnter="OnWindowMouseEnter"
+        MouseLeave="OnWindowMouseLeave"
+        Closed="OnWindowClosed">
+
+    <!--
+      外层 Margin 留给"阴影"。
+      注意：这里**刻意不用 DropShadowEffect** —— 位图特效会把卡片子树先渲染到中间位图，
+      而该位图以白色为底，于是半透明卡片被"洗白"（实测 bg=85 时卡片变成 #4B4B4B 而不是 #292929）。
+      改用「多层递减透明度的圆角矩形」堆出柔和外沿，纯 alpha 合成，颜色才准。
+    -->
+    <Grid Margin="28">
+        <Grid>
+            <Grid x:Name="ShadowLayer" Opacity="0" IsHitTestVisible="False">
+                <Border Margin="-9" CornerRadius="17" Background="#0A000000" />
+                <Border Margin="-6" CornerRadius="14" Background="#12000000" />
+                <Border Margin="-3" CornerRadius="11" Background="#1B000000" />
+            </Grid>
+
+            <Border x:Name="Card"
+                    CornerRadius="8"
+                    Padding="20,14"
+                    BorderThickness="0"
+                    SnapsToDevicePixels="True">
+                <StackPanel MinWidth="286">
+
+                    <!-- 工具栏：默认隐藏，鼠标移入才显示 -->
+                    <Grid x:Name="Toolbar" Visibility="Collapsed" Margin="0,0,0,10">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                            <ui:Button x:Name="ModeBtn" Appearance="Transparent"
+                                       Height="32" Padding="10,0" Margin="0,0,2,0"
+                                       Click="OnModeClick">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock x:Name="ModeIcon" Style="{StaticResource FluentIcon}"
+                                               FontSize="12" Text="&#xE768;" Margin="0,0,7,0" />
+                                    <TextBlock x:Name="ModeText" Text="进入默写" FontSize="13"
+                                               VerticalAlignment="Center" />
+                                </StackPanel>
+                            </ui:Button>
+                            <ui:Button Appearance="Transparent" Width="32" Height="32" Padding="0"
+                                       Margin="0,0,2,0" Click="OnSpeakClick" ToolTip="朗读单词">
+                                <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE995;" />
+                            </ui:Button>
+                            <!-- 提示：按住显示答案，松开隐藏（复习模式才出现；用了会清零连续天数） -->
+                            <ui:Button x:Name="HintBtn" Appearance="Transparent" Height="32" Padding="10,0"
+                                       Margin="0,0,2,0" Visibility="Collapsed"
+                                       PreviewMouseLeftButtonDown="OnHintDown"
+                                       PreviewMouseLeftButtonUp="OnHintUp"
+                                       MouseLeave="OnHintLeave"
+                                       ToolTip="按住显示答案（用提示会清零连续天数）">
+                                <TextBlock Text="提示" FontSize="13" VerticalAlignment="Center" />
+                            </ui:Button>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <ui:Button Appearance="Transparent" Width="32" Height="32" Padding="0"
+                                       Margin="0,0,2,0" Click="OnPrevClick" ToolTip="上一个 (←)">
+                                <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE892;" />
+                            </ui:Button>
+                            <ui:Button Appearance="Transparent" Width="32" Height="32" Padding="0"
+                                       Margin="0,0,2,0" Click="OnNextClick" ToolTip="下一个 (→)">
+                                <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE893;" />
+                            </ui:Button>
+                            <ui:Button Appearance="Transparent" Width="32" Height="32" Padding="0"
+                                       Margin="0,0,2,0" Click="OnGearClick" ToolTip="设置">
+                                <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE713;" />
+                            </ui:Button>
+                            <ui:Button Appearance="Transparent" Width="32" Height="32" Padding="0"
+                                       Margin="0,0,0,0" Click="OnCloseClick" ToolTip="退出 (Esc)">
+                                <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE8BB;" />
+                            </ui:Button>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- 进度 / 词典名：Caption 级，三级文本色 -->
+                    <TextBlock x:Name="Info" HorizontalAlignment="Center"
+                               FontFamily="Segoe UI Variable Text, Segoe UI"
+                               FontSize="12"
+                               Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+
+                    <!-- 释义：按词性分行显示，MaxWidth 由代码按屏幕宽度设置 -->
+                    <TextBlock x:Name="Mean" HorizontalAlignment="Center" Margin="0,6,0,0"
+                               FontFamily="Segoe UI Variable Text, Segoe UI"
+                               FontSize="14"
+                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                               TextWrapping="Wrap" TextAlignment="Center" />
+
+                    <!-- 单词：逐字绘制 + 几何描边 -->
+                    <local:WordCanvas x:Name="Word" HorizontalAlignment="Center" Margin="0,6,0,0" />
+
+                    <!-- 音标：Caption 级 -->
+                    <TextBlock x:Name="Phon" HorizontalAlignment="Center" Margin="0,4,0,0"
+                               FontFamily="Segoe UI Variable Text, Segoe UI"
+                               FontSize="12"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+
+                    <!-- 反馈：Caption 级 -->
+                    <TextBlock x:Name="Feedback" HorizontalAlignment="Center" Margin="0,2,0,0"
+                               FontFamily="Segoe UI Variable Text, Segoe UI"
+                               FontSize="12"
+                               Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

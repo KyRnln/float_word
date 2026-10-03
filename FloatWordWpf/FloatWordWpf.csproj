@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>FloatWord</AssemblyName>
+    <RootNamespace>FloatWordWpf</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 词库 -->
+    <Content Include="dicts\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 离线 TTS：Piper 引擎与语音模型（随程序一起输出） -->
+    <Content Include="piper\bin\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="piper\voices\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WPF-UI" Version="4.3.0" />
+  </ItemGroup>
+
+</Project>

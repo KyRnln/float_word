@@ -1,0 +1,23 @@
+# ============================================================
+#  FloatWord / .gitattributes
+# ============================================================
+
+# 默认按文本处理，二进制由 Git 自动识别
+* text=auto
+
+# ---- Piper 引擎与语音模型：强制二进制 ----
+# espeak-ng-data 下大量数据文件没有扩展名，一旦被当作文本做 LF/CRLF 转换，
+# 会直接损坏语音引擎（发音出错甚至崩溃），所以整个目录禁止任何转换。
+FloatWordWpf/piper/** -text -diff
+
+# ---- 其他常见二进制 ----
+*.dll  -text -diff
+*.exe  -text -diff
+*.onnx -text -diff
+*.ort  -text -diff
+*.pdb  -text -diff
+*.ico  -text -diff
+
+# ---- 词典与文档统一 LF ----
+FloatWordWpf/dicts/*.json text eol=lf
+*.md text eol=lf

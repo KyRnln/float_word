@@ -1,0 +1,38 @@
+# ============================================================
+#  FloatWord / .gitignore
+# ============================================================
+
+# ---- .NET 构建产物 ----
+# 这里用「锚定路径」只忽略项目自己的 bin / obj。
+# 千万不要写成通配的 `bin/`，否则会连
+#   FloatWordWpf/piper/bin/   （Piper 引擎，必须随仓库上传）
+# 一起忽略掉，程序就没有语音了。
+/FloatWordWpf/bin/
+/FloatWordWpf/obj/
+
+# ---- IDE / 编辑器 ----
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+
+# ---- 运行期生成 ----
+# 学习进度、外观设置等本机状态，不建议提交
+floatword_config.json
+
+# ---- 系统文件 ----
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ---- 旧版 Python 实现与打包产物（不发布）----
+# 仓库当前只发布 WPF 版；这些是早期 Python/PyInstaller 版本的遗留文件
+/build/
+/dist/
+__pycache__/
+*.pyc
+/main.py
+/FloatWord.spec
+/wpf-prototype/
+
