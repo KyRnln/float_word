@@ -169,7 +169,8 @@ public partial class MainWindow : Window
     {
         // 卡片半透明用"颜色的 alpha"，文字透明度用元素 Opacity —— 两者互不影响。
         // 用 CardBrush 而非 Brush：背景透明度拉到 0 时仍保留命中测试，否则空白处拖不动窗口。
-        Card.Background = Theme.CardBrush(Theme.Bg, _s.BgAlpha / 100.0);
+        // 底色随界面主题走：浅色主题用浅色卡片，深色主题用深灰卡片。
+        Card.Background = Theme.CardBrush(AppTheme.IsLight ? Theme.BgLight : Theme.Bg, _s.BgAlpha / 100.0);
 
         // Fluent 的层次感来自 elevation 阴影；背景全透明时阴影要一起淡出，
         // 否则会看到一圈"悬空的暗色矩形"。

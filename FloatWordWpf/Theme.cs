@@ -21,6 +21,8 @@ namespace FloatWordWpf;
 public static class Theme
 {
     public const string Bg = "#2B2B2B";
+    /// <summary>浅色主题下的卡片底色（卡片不透明时使用）。</summary>
+    public const string BgLight = "#F3F3F3";
     public const string BgSoft = "#323232";
     public const string Fg = "#FFFFFF";
     public const string FgSecondary = "#C5C5C5";
@@ -28,9 +30,6 @@ public static class Theme
     public const string Green = "#6CCB5F";
     public const string Red = "#FF99A4";
     public const string Muted = "#8A8A8A";
-
-    /// <summary>Fluent 控件描边（白 8%），叠在卡片上模拟亚克力的玻璃边。</summary>
-    public const string CardStroke = "#14FFFFFF";
 
     public static readonly string[] ColorPresets =
     {

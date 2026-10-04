@@ -33,6 +33,7 @@ public sealed class SettingsWindow : FluentWindow
     private readonly StackPanel _body = new();
     private readonly List<Action> _progressRefreshers = new();
     private ComboBox? _dictCombo;
+    private ComboBox? _themeCombo;
     private readonly AiQuoteService _ai = new();
     private TextBlock? _backupStatus;
 
@@ -147,6 +148,20 @@ public sealed class SettingsWindow : FluentWindow
         Check("已完成词定期抽查（每 6 个月回炉一次）", () => _s.ReviewCompleted, v => _s.ReviewCompleted = v);
         Note("「一天从几点开始」用于跨零点的判定：设为 4 点，则凌晨 4 点前都算前一天，熬夜复习不会被算成新的一天。目标值只用于上面的统计展示。");
 
+        Section("主题");
+
+        var themeLabels = new[] { "跟随系统", "深色", "浅色" };
+        _themeCombo = Choice("深浅色", themeLabels,
+               () => _s.UiTheme switch { "dark" => "深色", "light" => "浅色", _ => "跟随系统" },
+               v =>
+               {
+                   _s.UiTheme = v switch { "深色" => "dark", "浅色" => "light", _ => "system" };
+                   AppTheme.Apply(_s.UiTheme, this);   // 立即生效，设置窗口本身也跟着变
+                   _main.RefreshFromSettings();        // 浮窗卡片底色随主题重算
+               });
+        Note("「跟随系统」会随 Windows 的浅色 / 深色设置自动切换。只影响设置窗口与工具栏等 Fluent 控件；" +
+             "浮窗的文字颜色请在下面的「外观」里配置，可用「外观预设」一键切到深 / 浅色配色。");
+
         Section("外观");
 
         // 单词（逐字绘制的 WordCanvas）
@@ -190,6 +205,7 @@ public sealed class SettingsWindow : FluentWindow
         // 其余个性化项
         Group("其他", () =>
         {
+            PresetRow();
             SliderRow("背景透明度", 0, 100, () => _s.BgAlpha, v => _s.BgAlpha = v);
             SliderRow("文字透明度", 0, 100, () => _s.TextAlpha, v => _s.TextAlpha = v);
             Check("显示词典名称", () => _s.ShowDictName, v => _s.ShowDictName = v);
@@ -315,9 +331,9 @@ public sealed class SettingsWindow : FluentWindow
         var panel = new StackPanel();
 
         // 展开时用一圈细边框把内容整体框住；折叠后边框随内容一起隐藏
+        // 边框色用 Fluent 令牌（不再写死白色），这样浅色主题下也清晰可见
         var frame = new Border
         {
-            BorderBrush = Theme.Brush(Theme.CardStroke),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(10, 8, 10, 4),
@@ -325,6 +341,7 @@ public sealed class SettingsWindow : FluentWindow
             Visibility = Visibility.Collapsed,
             Child = panel
         };
+        frame.SetResourceReference(Border.BorderBrushProperty, "ControlStrokeColorDefaultBrush");
 
         var arrow = new TextBlock
         {
@@ -568,6 +585,40 @@ public sealed class SettingsWindow : FluentWindow
         Grid.SetColumnSpan(combo, 2);
         g.Children.Add(combo);
         return combo;
+    }
+
+    /// <summary>整体配色预设：一键在深色 / 浅色之间切换（同时切换界面主题与浮窗配色）。</summary>
+    private void PresetRow()
+    {
+        var g = NewRow();
+        RowLabel(g, "整体配色");
+
+        var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        foreach (var (text, light) in new[] { ("深色", false), ("浅色", true) })
+        {
+            var b = new FluentButton
+            {
+                Content = text,
+                Appearance = ControlAppearance.Secondary,
+                FontFamily = TextFont,
+                FontSize = 13,
+                MinWidth = 64,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            b.Click += (_, _) =>
+            {
+                _s.ApplyAppearancePreset(light);
+                if (_themeCombo is not null) _themeCombo.SelectedItem = light ? "浅色" : "深色";
+                AppTheme.Apply(_s.UiTheme, this);
+                RefreshProgress();
+                _main.RefreshFromSettings();
+            };
+            sp.Children.Add(b);
+        }
+
+        Grid.SetColumn(sp, 1);
+        Grid.SetColumnSpan(sp, 2);
+        g.Children.Add(sp);
     }
 
     // ---------- 词典导入 ----------

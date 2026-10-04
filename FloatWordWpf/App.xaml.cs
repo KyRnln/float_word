@@ -1,5 +1,7 @@
 using System.IO;
 using System.Windows;
+using Wpf.Ui.Appearance;
+using Wpf.Ui.Controls;
 
 namespace FloatWordWpf;
 
@@ -23,7 +25,9 @@ public partial class App : Application
 
         var win = new MainWindow(settings, library);
         MainWindow = win;
+        AppTheme.Apply(settings.UiTheme, win);   // 界面主题：跟随系统 / 深色 / 浅色（先应用再显示，避免闪一下）
         win.Show();
+        win.ApplySettings();                     // 主题确定后重算卡片底色（浅色主题用浅色卡片）
         Log.Info("主窗口已显示");
     }
 
@@ -56,4 +60,88 @@ public static class AppPaths
     public static string AppDir => AppContext.BaseDirectory;
 
     public static string ConfigFile => Path.Combine(AppDir, "floatword_config.json");
+}
+
+/// <summary>
+/// 界面深浅色主题的统一入口：把配置里的 system / dark / light 应用到 WPF-UI。
+/// 只影响 Fluent 控件（设置窗口、浮窗工具栏 / 提示按钮等）；浮窗文字颜色仍由「外观」单独控制。
+/// </summary>
+public static class AppTheme
+{
+    private static bool _watching;
+    private static Window? _watched;
+
+    /// <summary>当前是否为浅色主题（供浮窗选择卡片底色）。</summary>
+    public static bool IsLight => ApplicationThemeManager.GetAppTheme() == ApplicationTheme.Light;
+
+    /// <summary>应用主题。<paramref name="theme"/> 取 system / dark / light，其它值按 system。</summary>
+    public static void Apply(string theme, Window window)
+    {
+        try
+        {
+            if (theme == "light" || theme == "dark")
+            {
+                StopWatching();
+                ApplySafely(() => ApplicationThemeManager.Apply(
+                    theme == "light" ? ApplicationTheme.Light : ApplicationTheme.Dark,
+                    WindowBackdropType.None,
+                    updateAccent: false));
+            }
+            else if (_watching)
+            {
+                ApplySafely(() => ApplicationThemeManager.Apply(CurrentSystemTheme(), WindowBackdropType.None,
+                                                                updateAccent: false));
+            }
+            else
+            {
+                // Watch 首次调用会立即套用系统主题，并在系统深浅色变化时自动跟随
+                ApplySafely(() => SystemThemeWatcher.Watch(window, WindowBackdropType.None, updateAccents: false));
+                _watching = true;
+                _watched = window;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("应用界面主题失败", ex);
+        }
+    }
+
+    /// <summary>
+    /// WPF-UI 换主题时会顺手给 Application.MainWindow（浮窗）及其「子窗口」重设背景效果，
+    /// 这会把设置窗口的 Mica 一起抹掉。执行期间临时摘掉 MainWindow，让这一步整体跳过。
+    /// </summary>
+    private static void ApplySafely(Action apply)
+    {
+        var app = Application.Current;
+        var saved = app?.MainWindow;
+        if (app is not null) app.MainWindow = null;
+        try
+        {
+            apply();
+        }
+        finally
+        {
+            if (app is not null) app.MainWindow = saved;
+        }
+    }
+
+    private static ApplicationTheme CurrentSystemTheme() =>
+        ApplicationThemeManager.GetSystemTheme() is SystemTheme.Dark or SystemTheme.CapturedMotion or SystemTheme.Glow
+            ? ApplicationTheme.Dark
+            : ApplicationTheme.Light;
+
+    private static void StopWatching()
+    {
+        if (!_watching) return;
+        try
+        {
+            if (_watched is { IsLoaded: true }) SystemThemeWatcher.UnWatch(_watched);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("取消监听系统主题失败", ex);
+        }
+        _watching = false;
+        _watched = null;
+    }
 }
