@@ -217,7 +217,6 @@ dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=
 | 按键 | 作用 |
 | --- | --- |
 | 字母 / 数字 | 逐字输入当前单词 |
-| `←` / `→` | 上一个 / 下一个单词 |
 | `Enter` | 当前词已拼完时，跳到下一个 |
 | `Esc` | 退出程序 |
 

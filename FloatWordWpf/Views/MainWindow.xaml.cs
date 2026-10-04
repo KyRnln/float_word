@@ -557,14 +557,6 @@ public partial class MainWindow : Window
                 Close();
                 e.Handled = true;
                 return;
-            case Key.Left:
-                Move(-1);
-                e.Handled = true;
-                return;
-            case Key.Right:
-                Move(1);
-                e.Handled = true;
-                return;
             case Key.Return:
                 if (Current is { } c && _typed >= c.Word.Length) Move(1);
                 e.Handled = true;
