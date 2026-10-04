@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows.Media;
+using System.Collections.Generic;
 
 namespace FloatWordWpf;
 
@@ -49,13 +50,35 @@ public static class Theme
         "#60CDFF", "#FCE100", "#6CCB5F", "#FF99A4"
     };
 
+    /// <summary>全项目统一使用的等宽字体族：Cascadia Mono 优先，逐级回退，任何 Windows 上都落在等宽字体上。</summary>
+    public const string MonoFontStack = "Cascadia Mono, Consolas, Courier New";
+
+    /// <summary>设置里可选的字体 —— **只提供等宽字体**（配合 CoerceMono 保证全局只用等宽）。</summary>
     public static readonly string[] FontChoices =
     {
-        "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI",
-        "Consolas", "Cascadia Mono", "Arial", "Verdana", "Tahoma", "Calibri",
-        "Georgia", "Times New Roman", "Cambria", "Courier New",
-        "Comic Sans MS", "Microsoft YaHei UI", "SimHei", "KaiTi"
+        "Cascadia Mono", "Cascadia Code", "Consolas", "Courier New",
+        "Lucida Console", "Lucida Sans Typewriter", "NSimSun"
     };
+
+    private static readonly HashSet<string> MonoFamilies = new(System.StringComparer.OrdinalIgnoreCase)
+    {
+        "Cascadia Mono", "Cascadia Code", "Consolas", "Courier New",
+        "Lucida Console", "Lucida Sans Typewriter", "NSimSun", "MS Gothic", "MingLiU"
+    };
+
+    /// <summary>
+    /// 把字体名强制收敛到等宽字体：旧配置里的非等宽字体（Times New Roman / Segoe UI / Arial…）
+    /// 一律回退到默认等宽字体族。判断依据是字体族里排在第一位的那个名字。
+    /// </summary>
+    public static string CoerceMono(string? name)
+    {
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            var first = name.Split(',')[0].Trim().Trim('\'', '"');
+            if (MonoFamilies.Contains(first)) return name;
+        }
+        return MonoFontStack;
+    }
 
     /// <summary>把 #RRGGBB 解析成 Color，非法输入回退到灰色。</summary>
     public static Color Col(string hex)

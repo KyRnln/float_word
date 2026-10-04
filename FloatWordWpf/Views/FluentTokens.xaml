@@ -11,10 +11,17 @@
     <!-- Fluent 图标字体（Win11 优先，Win10 回退到 MDL2） -->
     <FontFamily x:Key="FluentIconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
 
-    <!-- 承载字体：Win11 用 Segoe UI Variable，Win10 回退 Segoe UI -->
-    <FontFamily x:Key="FluentTextFont">Segoe UI Variable Text, Segoe UI</FontFamily>
-    <FontFamily x:Key="FluentDisplayFont">Segoe UI Variable Display, Segoe UI</FontFamily>
-    <FontFamily x:Key="FluentMonoFont">Cascadia Mono, Consolas</FontFamily>
+    <!-- 承载字体：全项目只引用等宽字体（与 Theme.MonoFontStack 保持一致，改一处要同步） -->
+    <FontFamily x:Key="FluentTextFont">Cascadia Mono, Consolas, Courier New</FontFamily>
+    <FontFamily x:Key="FluentDisplayFont">Cascadia Mono, Consolas, Courier New</FontFamily>
+    <FontFamily x:Key="FluentMonoFont">Cascadia Mono, Consolas, Courier New</FontFamily>
+
+    <!--
+      覆盖 WPF-UI 的默认承载字体（WinUI 的 ContentControlThemeFontFamily，原值是 Segoe UI）。
+      WPF-UI 控件样式只设 FontSize、不设 FontFamily，字体靠继承/这个令牌决定；
+      在这里覆盖后，所有 Fluent 控件都会落到等宽字体。图标字体（FluentIconFont）不受影响。
+    -->
+    <FontFamily x:Key="ContentControlThemeFontFamily">Cascadia Mono, Consolas, Courier New</FontFamily>
 
     <Style x:Key="FluentIcon" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource FluentIconFont}" />

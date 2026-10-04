@@ -25,8 +25,8 @@ namespace FloatWordWpf;
 /// </summary>
 public sealed class SettingsWindow : FluentWindow
 {
-    private static readonly FontFamily TextFont = new("Segoe UI Variable Text, Segoe UI");
-    private static readonly FontFamily MonoFont = new("Cascadia Mono, Consolas");
+    private static readonly FontFamily TextFont = new(Theme.MonoFontStack);
+    private static readonly FontFamily MonoFont = new(Theme.MonoFontStack);
 
     private readonly MainWindow _main;
     private readonly AppSettings _s;
@@ -45,6 +45,7 @@ public sealed class SettingsWindow : FluentWindow
         _s = main.Settings;
 
         Title = "FloatWord 设置";
+        FontFamily = TextFont;   // 设置窗口整体只用等宽字体（子控件继承）
         // 设置窗口是唯一有标题栏/任务栏存在的窗口，给它挂上应用图标
         Icon = new BitmapImage(new Uri("pack://application:,,,/Assets/floatword.ico"));
         Width = 420;

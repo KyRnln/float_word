@@ -23,7 +23,7 @@ public sealed class AppSettings
     [JsonPropertyName("phon_outline_w")] public double PhonOutlineW { get; set; } = 1;
     [JsonPropertyName("phon_outline_color")] public string PhonOutlineColor { get; set; } = "#1F1F1F";
     [JsonPropertyName("phon_color")] public string PhonColor { get; set; } = Theme.Accent;
-    [JsonPropertyName("phon_font_family")] public string PhonFontFamily { get; set; } = "Segoe UI Variable Text";
+    [JsonPropertyName("phon_font_family")] public string PhonFontFamily { get; set; } = Theme.MonoFontStack;
     [JsonPropertyName("phon_bold")] public bool PhonBold { get; set; }
     /// <summary>AI 台词里命中当前单词时的高亮色（跟随「发音/台词」组）。</summary>
     [JsonPropertyName("quote_hl_color")] public string QuoteHlColor { get; set; } = "#FCE100";
@@ -31,7 +31,7 @@ public sealed class AppSettings
     [JsonPropertyName("mean_outline_w")] public double MeanOutlineW { get; set; } = 1;
     [JsonPropertyName("mean_outline_color")] public string MeanOutlineColor { get; set; } = "#1F1F1F";
     [JsonPropertyName("mean_color")] public string MeanColor { get; set; } = Theme.Accent;
-    [JsonPropertyName("mean_font_family")] public string MeanFontFamily { get; set; } = "Segoe UI Variable Text";
+    [JsonPropertyName("mean_font_family")] public string MeanFontFamily { get; set; } = Theme.MonoFontStack;
     [JsonPropertyName("mean_bold")] public bool MeanBold { get; set; }
     /// <summary>单词颜色（注释 / 发音各有自己的 mean_color / phon_color）。</summary>
     [JsonPropertyName("text_color")] public string TextColor { get; set; } = Theme.Accent;
@@ -39,7 +39,7 @@ public sealed class AppSettings
     [JsonPropertyName("hint_alpha")] public double HintAlpha { get; set; } = 50;
     [JsonPropertyName("outline_w")] public double OutlineW { get; set; } = 1;
     [JsonPropertyName("outline_color")] public string OutlineColor { get; set; } = "#2B2B2B";
-    [JsonPropertyName("font_family")] public string FontFamily { get; set; } = "Times New Roman";
+    [JsonPropertyName("font_family")] public string FontFamily { get; set; } = Theme.MonoFontStack;
     [JsonPropertyName("font_bold")] public bool FontBold { get; set; } = true;
     [JsonPropertyName("toolbar_pinned")] public bool ToolbarPinned { get; set; }
     [JsonPropertyName("show_dict_name")] public bool ShowDictName { get; set; } = true;
@@ -151,6 +151,12 @@ public sealed class AppSettings
     {
         DayStartHour = Math.Clamp(DayStartHour, 0, 12);
         DailyGoal = Math.Clamp(DailyGoal, 1, 999);
+
+        // 全局只用等宽字体：旧配置里的非等宽字体一律收敛到等宽
+        FontFamily = Theme.CoerceMono(FontFamily);
+        MeanFontFamily = Theme.CoerceMono(MeanFontFamily);
+        PhonFontFamily = Theme.CoerceMono(PhonFontFamily);
+
         if (Learn.Count == 0) MigrateHistory();
 
         // 阶段 3 但没有抽查日期（旧数据）→ 从今天起排一个抽查周期

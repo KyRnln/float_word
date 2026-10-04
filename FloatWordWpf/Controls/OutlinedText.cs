@@ -22,7 +22,7 @@ namespace FloatWordWpf;
 public class OutlinedText : FrameworkElement
 {
     private string _text = "";
-    private string _family = "Segoe UI Variable Text";
+    private string _family = Theme.MonoFontStack;
     private double _fontSize = 13;
     private bool _bold;
     private double _outlineWidth;

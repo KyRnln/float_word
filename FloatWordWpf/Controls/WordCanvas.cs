@@ -26,7 +26,7 @@ public class WordCanvas : FrameworkElement
     private int _typed;
     private bool _reveal = true;
     private bool _error;
-    private string _family = "Consolas";
+    private string _family = Theme.MonoFontStack;
     private double _fontSize = 28;
     private bool _bold = true;
     private double _outlineWidth = 2;
