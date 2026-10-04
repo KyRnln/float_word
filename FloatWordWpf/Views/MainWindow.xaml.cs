@@ -182,6 +182,7 @@ public partial class MainWindow : Window
         // 既让绝大多数词性行不折行，又不会把窗口撑到屏幕外。
         double textLimit = Math.Clamp(SystemParameters.WorkArea.Width * 0.62, 480, 1400);
         Info.MaxWidth = textLimit;   // 状态栏信息变长（今日统计）时换行，不把窗口撑宽
+        Feedback.MaxWidth = textLimit;   // 同理：AI 报错等临时文案变长时别把窗口撑宽、把单词顶偏
 
         // 注释（释义）：字体 / 字号 / 加粗 / 颜色 / 描边，与单词的设置项一一对应
         Mean.FontFamilyName = _s.MeanFontFamily;
@@ -333,6 +334,10 @@ public partial class MainWindow : Window
 
         ResetInfoStyle();   // 顶部信息行可能刚被「✓ 正确」占用过，这里恢复常规样式
 
+        // 以单词为基准：先记下变化前单词中心的屏幕坐标，内容/尺寸变完后同步摆回窗口，
+        // 让单词停在原地。**同步**执行 → 不会先按旧尺寸渲染一帧再跳位置（那才最像"抖动"）。
+        var anchor = SuspendedWordAnchor();
+
         var w = Current;
         if (w is null)
         {
@@ -341,7 +346,7 @@ public partial class MainWindow : Window
             Phon.Text = "";
             Feedback.Text = "";
             Word.Word = "";
-            KeepAnchoredLater();
+            ApplyAnchor(anchor);
             return;
         }
 
@@ -412,7 +417,7 @@ public partial class MainWindow : Window
         HintBtn.Visibility = _phase == Phase.Review ? Visibility.Visible : Visibility.Collapsed;
 
         if (wordChanged) SlideWordIn();
-        KeepAnchoredLater();
+        ApplyAnchor(anchor);
     }
 
     /// <summary>换词时让单词从右向左缓动滑入。</summary>
@@ -1016,35 +1021,38 @@ public partial class MainWindow : Window
     /// 内容变化（换词、换字号、显示工具栏等）会改变窗口尺寸。
     /// 这里以**单词为中心**：记下变化前单词中心的屏幕坐标，尺寸变化后把窗口摆回去，
     /// 让单词始终停在原来的位置 —— 释义再长（撑宽 / 换更多行）也不会带着单词漂移。
+    ///
+    /// 关键：**同步**完成「改内容 → 重新布局 → 摆窗口」，全部在同一次操作内做完，
+    /// 这样 WPF 只会渲染最终状态，不会先按旧尺寸渲染一帧再跳过去（那种闪烁最像"抖动"）。
     /// </summary>
-    private void KeepAnchoredLater() => Anchored(() => { });
+    private Point? SuspendedWordAnchor()
+    {
+        if (!IsLoaded || double.IsNaN(Left) || double.IsNaN(Top)) return null;
+        return WordAnchor();   // 变化前：单词中心的屏幕坐标
+    }
 
+    private void ApplyAnchor(Point? anchor)
+    {
+        if (anchor is not { } a) return;
+
+        UpdateLayout();   // 先让新内容完成布局，再一次性算好窗口位置
+
+        var now = WordAnchorInWindow();   // 变化后：单词中心相对窗口左上角的位置
+        var wa = SystemParameters.WorkArea;
+        double nl = Math.Clamp(a.X - now.X, wa.Left, Math.Max(wa.Left, wa.Right - ActualWidth));
+        double nt = Math.Clamp(a.Y - now.Y, wa.Top, Math.Max(wa.Top, wa.Bottom - ActualHeight));
+
+        // 亚像素级差值不动，避免无意义的微抖
+        if (Math.Abs(nl - Left) > 0.5) Left = nl;
+        if (Math.Abs(nt - Top) > 0.5) Top = nt;
+    }
+
+    /// <summary>执行一次会改变窗口尺寸的操作，并保持单词在屏幕上的位置不变。</summary>
     private void Anchored(Action change)
     {
-        if (!IsLoaded || double.IsNaN(Left) || double.IsNaN(Top))
-        {
-            change();
-            return;
-        }
-
-        var wa = SystemParameters.WorkArea;
-        var before = WordAnchor();   // 变化前：单词中心的屏幕坐标
-
+        var anchor = SuspendedWordAnchor();
         change();
-
-        Dispatcher.BeginInvoke(new Action(() =>
-        {
-            if (!IsLoaded) return;
-            UpdateLayout();
-
-            var now = WordAnchorInWindow();   // 变化后：单词中心相对窗口左上角的位置
-            double nl = before.X - now.X;
-            double nt = before.Y - now.Y;
-
-            // 兜底夹紧：万一窗口贴到屏幕边缘放不下，至少不飞出屏幕
-            Left = Math.Clamp(nl, wa.Left, Math.Max(wa.Left, wa.Right - ActualWidth));
-            Top = Math.Clamp(nt, wa.Top, Math.Max(wa.Top, wa.Bottom - ActualHeight));
-        }), DispatcherPriority.Loaded);
+        ApplyAnchor(anchor);
     }
 
     /// <summary>单词中心当前的屏幕坐标。</summary>
