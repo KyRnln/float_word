@@ -235,7 +235,7 @@ public sealed class SettingsWindow : FluentWindow
             WebDavRow();
             BackupStatusRow();
 
-            Note("把「设置 + 全部学习进度」（含每个词的 SRS 阶段、连续天数）打包成备份文件传到 WebDAV 网盘，" +
+            Note("把「设置 + 全部学习进度」（含每个词的 SRS 阶段、通过次数）打包成备份文件传到 WebDAV 网盘，" +
                  "换电脑或重装后一键恢复。远端文件名固定为 " + WebDavService.FileName + "。");
             Note("坚果云：先在网页端「账户信息 → 安全选项 → 添加应用密码」，把生成的密码填进「应用密码」——" +
                  "登录密码对 WebDAV 无效。服务器地址已默认填好，不用改。");
@@ -642,7 +642,7 @@ public sealed class SettingsWindow : FluentWindow
         Grid.SetColumnSpan(btn, 3);
         g.Children.Add(btn);
 
-        Note("清空所有词典的学习位置，以及全部单词的复习阶段、连续天数、首次成功、二次成功、已完成记录。外观与发音设置不受影响。");
+        Note("清空所有词典的学习位置，以及全部单词的复习阶段、通过次数、首次成功、二次成功、已完成记录。外观与发音设置不受影响。");
     }
 
     private async Task ClearProgressAsync()
@@ -652,7 +652,7 @@ public sealed class SettingsWindow : FluentWindow
             "确定要清空全部学习进度吗？\n\n" +
             "即将删除：\n" +
             "· 各词典的学习位置（回到第一个单词）\n" +
-            "· 所有单词的复习阶段、连续天数、首次成功、二次成功、已完成记录\n\n" +
+            "· 所有单词的复习阶段、通过次数、首次成功、二次成功、已完成记录\n\n" +
             "此操作无法撤销。",
             "清空学习进度", "清空");
 

@@ -60,13 +60,13 @@
                                        Margin="0,0,2,0" Click="OnSpeakClick" ToolTip="朗读单词">
                                 <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE995;" />
                             </ui:Button>
-                            <!-- 提示：按住显示答案，松开隐藏（复习模式才出现；用了会清零连续天数） -->
+                            <!-- 提示：按住显示答案，松开隐藏（复习模式才出现；用了会清零该词进度） -->
                             <ui:Button x:Name="HintBtn" Appearance="Transparent" Height="32" Padding="10,0"
                                        Margin="0,0,2,0" Visibility="Collapsed"
                                        PreviewMouseLeftButtonDown="OnHintDown"
                                        PreviewMouseLeftButtonUp="OnHintUp"
                                        MouseLeave="OnHintLeave"
-                                       ToolTip="按住显示答案（用提示会清零连续天数）">
+                                       ToolTip="按住显示答案（用提示会清零该词的通过次数）">
                                 <TextBlock Text="提示" FontSize="13" VerticalAlignment="Center" />
                             </ui:Button>
                         </StackPanel>

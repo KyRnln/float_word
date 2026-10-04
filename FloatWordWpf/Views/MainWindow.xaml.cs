@@ -67,7 +67,7 @@ public partial class MainWindow : Window
     private string _shownWord = "\u0000";     // 上一次渲染的单词：变化时播「从右向左」滑入
 
     private bool _hintHeld;          // 提示按钮是否正被按住（按住显示答案）
-    private bool _hintUsed;          // 本词是否用过提示（用提示会清零连续天数）
+    private bool _hintUsed;          // 本词是否用过提示（用提示会清零该词进度）
     private string _verdict = "";    // 上一次复习判定结果（留到下次输入前）
     private bool _verdictBad;        // 判定结果是否为负向（用提示 / 默写错误）
 
@@ -337,7 +337,7 @@ public partial class MainWindow : Window
         else if (_relearn.Count > 0) pos = $"重学 {_relearn.Count}";
         else pos = $"{_index + 1}/{Dict!.Words.Count}";
 
-        // 词典位置后面跟该词的学习情况：未学 / 学习中 / 连续 N/3 天 / 首次成功 / 二次成功 / 已完成
+        // 词典位置后面跟该词的学习情况：未学 / 学习中 / 已通过 N/3 次 / 首次成功 / 二次成功 / 已完成
         string status = AppSettings.StatusText(_s.GetProgress(Dict!.Name, w.Word));
         Info.Text = _s.ShowDictName ? $"{Dict!.Name} · {pos} · {status}" : $"{pos} · {status}";
         Mean.Text = w.Meaning;
@@ -594,11 +594,11 @@ public partial class MainWindow : Window
         Feedback.Foreground = Theme.Brush(Theme.Red);
         if (_s.SpeakWrong) Speak();
 
-        // 复习判定：阶段 0 拼错不影响连续天数；阶段 1/2 拼错则打回阶段 0 重新学
-        // （注意：只有"用提示"才会清零连续天数，单纯拼错不算）
+        // 复习判定：阶段 0 单纯拼错不影响进度；阶段 1/2 拼错则打回阶段 0 重新学
+        // （用提示则对错都清零，见 JudgeReview / JudgeWrong）
         if (_phase == Phase.Review && Dict is not null && Current is { } rw)
         {
-            var v = _s.JudgeWrong(Dict.Name, rw.Word);
+            var v = _s.JudgeWrong(Dict.Name, rw.Word, _hintUsed);
             if (v.Length > 0)
             {
                 _verdict = v;

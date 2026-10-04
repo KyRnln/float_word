@@ -261,13 +261,14 @@ public sealed class AppSettings
                     break;
 
                 case 1:
-                    // 首次成功：满 10 天后加入复习
-                    if (ParseDate(p.Due) is { } d1 && d1.Date <= today) result.Add(word);
+                    // 首次成功：满 10 天后加入复习；当天已判定过的不再重复出现
+                    // （用提示不推进阶段，若不去重会在同一天里反复考同一个词）
+                    if (ParseDate(p.Due) is { } d1 && d1.Date <= today && p.LastOk != todayStr) result.Add(word);
                     break;
 
                 case 2:
-                    // 二次成功：满 30 天后再加入复习
-                    if (ParseDate(p.Due) is { } d2 && d2.Date <= today) result.Add(word);
+                    // 二次成功：满 30 天后再加入复习；同样按天去重
+                    if (ParseDate(p.Due) is { } d2 && d2.Date <= today && p.LastOk != todayStr) result.Add(word);
                     break;
             }
         }
@@ -281,8 +282,9 @@ public sealed class AppSettings
     /// 返回一句给用户看的结果说明（空串表示无需提示）。
     ///
     /// 规则：
-    ///   · **用了提示** → 连续天数清零，今天不再计入（这是唯一的"重置"来源）
-    ///   · 阶段 0：连续无提示通过满 3 天 → 阶段 1（首次学习成功），10 天后复习
+    ///   · **用了提示** → 进度清零，今天不再计入（这是唯一的"重置"来源）
+    ///   · 阶段 0：累计无提示通过满 3 次 → 阶段 1（首次学习成功），10 天后复习
+    ///     （不要求自然日连续，中间断档不清零；每天最多计 1 次）
     ///   · 阶段 1：通过 → 阶段 2（二次学习成功），30 天后复习
     ///   · 阶段 2：通过 → 阶段 3（学习完成）
     /// </summary>
@@ -295,29 +297,23 @@ public sealed class AppSettings
         {
             p.Streak = 0;
             p.LastOk = today;          // 今天不再计入
-            return "用了提示：连续天数已清零";
+            return "用了提示：通过次数已清零";
         }
 
         switch (p.Stage)
         {
             case 0:
                 if (p.LastOk == today) return "今天已经通过过了";
-                // "连续"：上次通过必须是昨天；断档则今天从头算
-                if (p.LastOk.Length > 0
-                    && ParseDate(p.LastOk) is { } last
-                    && last.Date < DateTime.Today.AddDays(-1))
-                {
-                    p.Streak = 0;
-                }
+                // 不要求自然日连续：断档也不清零，通过一次累计一次（每天最多 1 次）
                 p.Streak++;
                 p.LastOk = today;
                 if (p.Streak >= 3)
                 {
                     p.Stage = 1;
                     p.Due = PlusDays(10);
-                    return "连续 3 天通过 → 首次学习成功，10 天后复习";
+                    return "累计 3 次通过 → 首次学习成功，10 天后复习";
                 }
-                return $"连续 {p.Streak}/3 天";
+                return $"已通过 {p.Streak}/3 次";
 
             case 1:
                 p.Stage = 2;
@@ -335,18 +331,25 @@ public sealed class AppSettings
     }
 
     /// <summary>
-    /// 复习默写错误时的判定。
-    /// 阶段 0（学习期）的拼错**不影响连续天数**（只有提示会清零）；
+    /// 复习默写错误时的判定。hinted = 本次是否用过提示。
+    /// 阶段 0（学习期）的单纯拼错不影响进度，但**用了提示就清零**（堵住"看提示再故意拼错"）；
     /// 阶段 1/2 的复习错则打回阶段 0，需要重新学。
     /// </summary>
-    public string JudgeWrong(string dict, string word)
+    public string JudgeWrong(string dict, string word, bool hinted)
     {
         var p = P(dict, word);
-        if (p.Stage == 0) return "";
+
+        if (p.Stage == 0)
+        {
+            if (!hinted) return "";        // 单纯拼错：不影响
+            p.Streak = 0;
+            p.LastOk = Today();            // 用提示：清零，且今天不再计入
+            return "用了提示：通过次数已清零";
+        }
 
         p.Stage = 0;
         p.Streak = 0;
-        p.LastOk = "";
+        p.LastOk = hinted ? Today() : "";
         p.Due = "";
         return "默写错误 → 回到未学习，需要重新学";
     }
@@ -375,7 +378,7 @@ public sealed class AppSettings
         if (p is null) return "未学";
         return p.Stage switch
         {
-            0 => p.Streak > 0 ? $"连续 {p.Streak}/3 天" : "学习中",
+            0 => p.Streak > 0 ? $"已通过 {p.Streak}/3 次" : "学习中",
             1 => "首次成功",
             2 => "二次成功",
             _ => "已完成"
@@ -407,17 +410,18 @@ public sealed class AppSettings
 /// 单个单词的间隔复习进度。
 ///
 /// 阶段流转：
-///   0 学习中 ──连续 3 天无提示默写通过──> 1 首次学习成功 ──10 天后复习通过──> 2 二次学习成功 ──30 天后复习通过──> 3 学习完成
+///   0 学习中 ──累计 3 次无提示默写通过──> 1 首次学习成功 ──10 天后复习通过──> 2 二次学习成功 ──30 天后复习通过──> 3 学习完成
 ///
-/// 重置规则：**只有用提示会清零连续天数**；学习期（阶段 0）拼错不影响连续天数。
+/// 重置规则：**只有用提示会清零进度**（对错都清）；学习期（阶段 0）单纯拼错不影响。
 /// 阶段 1/2 的复习默写错误则打回阶段 0，需要重新学。
+/// 计次不要求自然日连续：断档不清零，每天最多计 1 次。
 /// </summary>
 public sealed class WordProgress
 {
     /// <summary>0 学习中 / 1 首次成功 / 2 二次成功 / 3 完成。</summary>
     [JsonPropertyName("stage")] public int Stage { get; set; }
 
-    /// <summary>连续无提示默写通过的天数（满 3 天进入阶段 1）。</summary>
+    /// <summary>阶段 0 里累计无提示通过的次数（满 3 次进入阶段 1，每天最多计 1 次）。</summary>
     [JsonPropertyName("streak")] public int Streak { get; set; }
 
     /// <summary>最近一次学习日期（学习模式打卡时写入）。</summary>
