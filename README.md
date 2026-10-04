@@ -97,7 +97,7 @@
 ### 个性化设置
 
 - 单词 / 注释 / 发音·台词 三组各自独立的字体（**只能选等宽字体**，自动识别系统已安装的等宽字体）、字号、加粗、文字颜色、描边宽度与颜色
-- **全界面统一等宽字体**：状态栏、设置页等所有文字也都是等宽（图标字体除外），保证逐字对齐；后续新装的等宽字体重启程序后会自动出现在选项里
+- **界面用 Windows 默认字体（Segoe UI）**：设置页、状态栏、工具栏等 UI 走系统默认字体，配合不透明背景启用 **ClearType**，文字清晰不发虚；只有内容（单词 / 释义 / 音标·台词）用等宽字体，且字体选项只列等宽
 - **发音/台词**组额外提供「高亮词颜色」，用于 AI 台词里命中当前单词的部分
 - **界面主题**：「主题 → 深浅色」可选 **跟随系统 / 深色 / 浅色**（设置窗口与工具栏等 Fluent 控件随之切换）；「外观 → 其他」里还有 **整体配色：深色 / 浅色** 一键预设，同时切换主题与浮窗的文字 / 描边 / 提示框 / 高亮色，省得逐项调
 - 浮窗卡片底色随主题深浅变化（深色主题深灰卡片、浅色主题浅色卡片），文字颜色仍可在「外观」里单独微调
@@ -145,7 +145,7 @@
 
 | 项目 | 要求 |
 | --- | --- |
-| 操作系统 | Windows 10 1809+ / Windows 11（Mica 云母效果需要 Windows 11） |
+| 操作系统 | Windows 10 1809+ / Windows 11 |
 | 运行时 | .NET 8 Desktop Runtime（从源码构建需 .NET 8 SDK） |
 | 网络 | 默认不需要（语音与词典全部离线）；开启「AI 台词」后需要联网 |
 
@@ -380,7 +380,7 @@ dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=
 - **[WPF-UI](https://github.com/lepoco/wpfui) 4.3.0**：Fluent 2 设计令牌与全量控件样式
 - **Piper**（`onnxruntime`）离线神经语音合成
 - 分层窗口 + 真 per-pixel alpha；`FormattedText.BuildGeometry` 绘制带描边的逐字文本
-- 全界面统一**等宽字体**：设置里只列等宽字体，并在运行时枚举系统字体、按字形推进宽度（`AdvanceWidths`）自动识别等宽字体
+- 界面 UI 用 **Windows 默认字体（Segoe UI）+ ClearType**（不透明背景，避免 Mica 半透明导致文字退化为灰度抗锯齿而发虚）；内容（单词 / 释义 / 音标·台词）用**等宽字体**，并在运行时枚举系统字体、按字形推进宽度（`AdvanceWidths`）自动识别等宽字体
 - 无 WebView、无 Electron、无 Python 运行时
 
 ---
@@ -409,7 +409,7 @@ float-word/
 │  │  └─ Log.cs                   轻量日志 `logs\floatword.log`（1 MB 轮转）
 │  ├─ Views/
 │  │  ├─ MainWindow.xaml(.cs)     悬浮窗：学习 / 本组默写 / 复习 与输入
-│  │  ├─ SettingsWindow.cs        设置窗口（FluentWindow + Mica）
+│  │  ├─ SettingsWindow.cs        设置窗口（FluentWindow，不透明背景 + ClearType）
 │  │  └─ FluentTokens.xaml        少量 Fluent 补充样式
 │  ├─ dicts/                      内置词典（8 本 JSON）
 │  └─ piper/                      离线语音引擎（bin）与模型（voices）
@@ -455,7 +455,7 @@ piper/
 
 ## 已知问题
 
-- **设置窗口用 Mica + 硬件加速渲染**，部分外部截图/录屏工具抓不到画面（不影响正常使用和显示）。
+- **浮动窗口是分层窗口（per-pixel alpha）**，背后是任意桌面内容，WPF 无法使用 ClearType，浮窗文字只能走灰度抗锯齿（这是分层窗口的硬限制）；设置窗口已改为不透明背景 + ClearType，不受此限。
 - 背景透明度设为 0 时窗口仍可拖动（内部把 alpha 字节下限锁在 1/255，肉眼与全透明无异）。
 - 复习模式下提示按钮只在有复习队列时才有意义；提示会清零该词进度，请谨慎使用。
 

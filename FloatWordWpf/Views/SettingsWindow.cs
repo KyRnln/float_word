@@ -16,7 +16,7 @@ namespace FloatWordWpf;
 /// 设置窗口 —— Fluent 版。
 ///
 /// 使用 WPF-UI 的 FluentWindow：
-///   · WindowBackdropType = Mica → Windows 11 的云母材质背景
+///   · 不透明背景（不用 Mica）+ ClearType → 界面文字清晰不发虚
 ///   · ExtendsContentIntoTitleBar + ui:TitleBar → Fluent 标题栏
 ///   · 所有输入控件（Slider/ComboBox/CheckBox/Button）交给 WPF-UI 的隐式样式，
 ///     因此不再需要自己写控件模板。
@@ -25,8 +25,8 @@ namespace FloatWordWpf;
 /// </summary>
 public sealed class SettingsWindow : FluentWindow
 {
-    private static readonly FontFamily TextFont = new(Theme.MonoFontStack);
-    private static readonly FontFamily MonoFont = new(Theme.MonoFontStack);
+    // 界面 UI 用 Windows 默认字体（Segoe UI），可正常启用 ClearType；只有内容（单词/释义/音标·台词）才用等宽
+    private static readonly FontFamily TextFont = new("Segoe UI Variable Text, Segoe UI");
 
     private readonly MainWindow _main;
     private readonly AppSettings _s;
@@ -55,8 +55,8 @@ public sealed class SettingsWindow : FluentWindow
         ResizeMode = ResizeMode.NoResize;
         ShowInTaskbar = false;
 
-        // Fluent 云母背景 + 内容延伸到标题栏
-        WindowBackdropType = WindowBackdropType.Mica;
+        // 不透明背景（不用 Mica）+ 内容延伸到标题栏：让界面文字用上 ClearType，不再发虚
+        UseCrispText(this);
         ExtendsContentIntoTitleBar = true;
 
         var root = new Grid();
@@ -113,6 +113,17 @@ public sealed class SettingsWindow : FluentWindow
         if (left < wa.Left) left = _main.Left + _main.ActualWidth + 14;
         Left = Math.Clamp(left, wa.Left, Math.Max(wa.Left, wa.Right - w));
         Top = Math.Clamp(_main.Top - 40, wa.Top, Math.Max(wa.Top, wa.Bottom - h));
+    }
+
+    /// <summary>
+    /// 让窗口文字用上 ClearType：Mica（云母）是半透明背景，WPF 在半透明表面上会**禁用 ClearType**，
+    /// 界面文字退化成灰度抗锯齿，看起来发虚。改成「不透明主题底色 + 显式 ClearType」即可恢复清晰。
+    /// </summary>
+    private static void UseCrispText(FluentWindow win)
+    {
+        win.WindowBackdropType = WindowBackdropType.None;
+        win.SetResourceReference(BackgroundProperty, "ApplicationBackgroundBrush");   // 主题色的不透明底
+        TextOptions.SetTextRenderingMode(win, TextRenderingMode.ClearType);
     }
 
     // ---------- 设置项描述 ----------
@@ -415,7 +426,7 @@ public sealed class SettingsWindow : FluentWindow
         var val = new TextBlock
         {
             Text = ((int)Math.Round(get())).ToString(),
-            FontFamily = MonoFont,
+            FontFamily = TextFont,
             FontSize = 12,
             Width = 32,
             TextAlignment = TextAlignment.Right,
@@ -456,7 +467,7 @@ public sealed class SettingsWindow : FluentWindow
         {
             Text = get(),
             VerticalAlignment = VerticalAlignment.Center,
-            FontFamily = MonoFont,
+            FontFamily = TextFont,
             FontSize = 12
         };
         tb.TextChanged += (_, _) =>
@@ -479,7 +490,7 @@ public sealed class SettingsWindow : FluentWindow
 
         var val = new TextBlock
         {
-            FontFamily = MonoFont,
+            FontFamily = TextFont,
             FontSize = 12,
             Width = 64,
             TextAlignment = TextAlignment.Right,
@@ -1102,9 +1113,10 @@ public sealed class SettingsWindow : FluentWindow
             ResizeMode = ResizeMode.NoResize,
             ShowInTaskbar = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            WindowBackdropType = WindowBackdropType.Mica,
             ExtendsContentIntoTitleBar = true
         };
+
+        UseCrispText(win);
 
         var root = new Grid();
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -1128,7 +1140,7 @@ public sealed class SettingsWindow : FluentWindow
         {
             Text = get(),
             Margin = new Thickness(0, 10, 0, 16),
-            FontFamily = MonoFont,
+            FontFamily = TextFont,
             FontSize = 13
         };
         sp.Children.Add(tb);

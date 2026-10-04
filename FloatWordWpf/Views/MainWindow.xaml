@@ -13,7 +13,7 @@
         ShowInTaskbar="False"
         ResizeMode="NoResize"
         WindowStartupLocation="Manual"
-        FontFamily="Cascadia Mono, Consolas, Courier New"
+        FontFamily="Segoe UI Variable Text, Segoe UI"
         TextOptions.TextFormattingMode="Ideal"
         TextOptions.TextRenderingMode="Grayscale"
         PreviewKeyDown="OnWindowKey"
@@ -86,7 +86,7 @@
 
                     <!-- 进度 / 词典名：Caption 级，三级文本色 -->
                     <TextBlock x:Name="Info" HorizontalAlignment="Center"
-                               FontFamily="Cascadia Mono, Consolas, Courier New"
+                               FontFamily="Segoe UI Variable Text, Segoe UI"
                                FontSize="12"
                                TextWrapping="Wrap"
                                Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
@@ -120,7 +120,7 @@
 
                     <!-- 反馈：Caption 级 -->
                     <TextBlock x:Name="Feedback" HorizontalAlignment="Center" Margin="0,2,0,0"
-                               FontFamily="Cascadia Mono, Consolas, Courier New"
+                               FontFamily="Segoe UI Variable Text, Segoe UI"
                                FontSize="12"
                                Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
                 </StackPanel>
