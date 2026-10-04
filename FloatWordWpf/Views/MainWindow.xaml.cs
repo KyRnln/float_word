@@ -172,6 +172,7 @@ public partial class MainWindow : Window
         // 释义按词性分行，每行长短差别很大：给一个随屏幕自适应的上限，
         // 既让绝大多数词性行不折行，又不会把窗口撑到屏幕外。
         double textLimit = Math.Clamp(SystemParameters.WorkArea.Width * 0.62, 480, 1400);
+        Info.MaxWidth = textLimit;   // 状态栏信息变长（今日统计）时换行，不把窗口撑宽
 
         // 注释（释义）：字体 / 字号 / 加粗 / 颜色 / 描边，与单词的设置项一一对应
         Mean.FontFamilyName = _s.MeanFontFamily;
@@ -339,7 +340,10 @@ public partial class MainWindow : Window
 
         // 词典位置后面跟该词的学习情况：未学 / 学习中 / 已通过 N/3 次 / 首次成功 / 二次成功 / 已完成
         string status = AppSettings.StatusText(_s.GetProgress(Dict!.Name, w.Word));
-        Info.Text = _s.ShowDictName ? $"{Dict!.Name} · {pos} · {status}" : $"{pos} · {status}";
+        // 末尾附今日统计：新学/目标 + 复习通过数，给一点即时反馈
+        string today = $"今日 {_s.TodayLearned}/{_s.DailyGoal} · 复 {_s.TodayReviewed}";
+        string head = _s.ShowDictName ? $"{Dict!.Name} · {pos} · {status}" : $"{pos} · {status}";
+        Info.Text = $"{head} · {today}";
         Mean.Text = w.Meaning;
 
         // 模式按钮显示当前模式，点击循环切换

@@ -93,6 +93,19 @@ public sealed class AppSettings
     /// <summary>上次成功备份的时间，仅用于显示。</summary>
     [JsonPropertyName("webdav_last")] public string WebDavLast { get; set; } = "";
 
+    // ---------- 学习节奏 / 统计 ----------
+    /// <summary>「学习日」的起始小时：在此之前算作前一天（默认 4 点，避开凌晨跨天）。</summary>
+    [JsonPropertyName("day_start_hour")] public int DayStartHour { get; set; } = 4;
+    /// <summary>每日新学目标（仅用于统计展示）。</summary>
+    [JsonPropertyName("daily_goal")] public int DailyGoal { get; set; } = 20;
+    /// <summary>已完成（阶段 3）的词是否定期抽查回炉。</summary>
+    [JsonPropertyName("review_completed")] public bool ReviewCompleted { get; set; } = true;
+    /// <summary>每日统计：日期 -> 当天新学 / 复习通过数（只保留最近 90 天）。</summary>
+    [JsonPropertyName("stats")] public Dictionary<string, DayStat> Stats { get; set; } = new();
+
+    /// <summary>已完成词的抽查周期（天）。</summary>
+    public const int MaintainDays = 180;
+
     // ---- 学习进度： 词典 -> 模式 -> 下标 ----
     [JsonPropertyName("progress")]
     public Dictionary<string, Dictionary<string, int>> Progress { get; set; } = new();
@@ -122,7 +135,7 @@ public sealed class AppSettings
             {
                 var s = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), Options)
                         ?? new AppSettings();
-                s.MigrateHistory();
+                s.Migrate();
                 return s;
             }
         }
@@ -133,13 +146,27 @@ public sealed class AppSettings
         return new AppSettings();
     }
 
+    /// <summary>加载后的兼容处理：旧字段迁移 + 补齐新字段的默认值。</summary>
+    private void Migrate()
+    {
+        DayStartHour = Math.Clamp(DayStartHour, 0, 12);
+        DailyGoal = Math.Clamp(DailyGoal, 1, 999);
+        if (Learn.Count == 0) MigrateHistory();
+
+        // 阶段 3 但没有抽查日期（旧数据）→ 从今天起排一个抽查周期
+        foreach (var m in Learn.Values)
+            foreach (var p in m.Values)
+                if (p.Stage >= 3 && p.Due.Length == 0) p.Due = PlusDays(MaintainDays);
+
+        PruneStats();
+    }
+
     /// <summary>
     /// 旧版的学习记录存在 history（词典 -> 单词 -> 学习日期），没有阶段概念。
     /// 首次升级时把它们迁移成阶段 0（学习中），这样已学过的词能继续走新的复习流程。
     /// </summary>
     private void MigrateHistory()
     {
-        if (Learn.Count > 0) return;
         if (!Extra.TryGetValue("history", out var h) || h.ValueKind != JsonValueKind.Object) return;
 
         foreach (var dictProp in h.EnumerateObject())
@@ -190,14 +217,64 @@ public sealed class AppSettings
     }
 
     // ---------- 学习记录 / 间隔复习 ----------
-    private static string Today() => DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    /// <summary>当前「学习日」：凌晨 <see cref="DayStartHour"/> 点之前算作前一天。</summary>
+    public DateTime StudyDate()
+    {
+        var now = DateTime.Now;
+        return now.TimeOfDay.TotalHours < DayStartHour ? now.Date.AddDays(-1) : now.Date;
+    }
 
-    private static string PlusDays(int days) =>
-        DateTime.Today.AddDays(days).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    private string Today() => Key(StudyDate());
+
+    private string PlusDays(int days) => Key(StudyDate().AddDays(days));
+
+    private static string Key(DateTime d) => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     private static DateTime? ParseDate(string s) =>
         DateTime.TryParseExact(s, "yyyy-MM-dd", CultureInfo.InvariantCulture,
                                DateTimeStyles.None, out var d) ? d : null;
+
+    // ---------- 每日统计 / 打卡 ----------
+    /// <summary>今日新学词数。</summary>
+    public int TodayLearned => Stats.TryGetValue(Key(StudyDate()), out var st) ? st.Learned : 0;
+
+    /// <summary>今日复习通过数。</summary>
+    public int TodayReviewed => Stats.TryGetValue(Key(StudyDate()), out var st) ? st.Reviewed : 0;
+
+    /// <summary>打卡天数：从今天（今天还没活动就从昨天）往前，连续有学习或复习活动的天数。</summary>
+    public int StreakDays()
+    {
+        var d = StudyDate();
+        if (!HasActivity(d)) d = d.AddDays(-1);
+        int n = 0;
+        while (HasActivity(d)) { n++; d = d.AddDays(-1); }
+        return n;
+    }
+
+    private bool HasActivity(DateTime d) =>
+        Stats.TryGetValue(Key(d), out var st) && (st.Learned > 0 || st.Reviewed > 0);
+
+    private DayStat TodayStat()
+    {
+        var k = Key(StudyDate());
+        if (!Stats.TryGetValue(k, out var st)) Stats[k] = st = new DayStat();
+        return st;
+    }
+
+    /// <summary>学习模式新学一个词时调用（只统计首次学习）。</summary>
+    public void AddLearnedStat() => TodayStat().Learned++;
+
+    /// <summary>复习通过一个词时调用。</summary>
+    public void AddReviewedStat() => TodayStat().Reviewed++;
+
+    /// <summary>只保留最近 90 天的统计，避免配置无限膨胀。</summary>
+    private void PruneStats()
+    {
+        if (Stats.Count <= 90) return;
+        var cutoff = StudyDate().AddDays(-89);
+        foreach (var k in Stats.Keys.ToList())
+            if (ParseDate(k) is { } d && d.Date < cutoff) Stats.Remove(k);
+    }
 
     private Dictionary<string, WordProgress> LearnOf(string dict)
     {
@@ -223,7 +300,10 @@ public sealed class AppSettings
     {
         var m = LearnOf(dict);
         if (!m.TryGetValue(word, out var p))
+        {
             m[word] = p = new WordProgress();
+            AddLearnedStat();          // 只统计"首次学习"的词
+        }
         p.Learned = Today();
     }
 
@@ -247,7 +327,7 @@ public sealed class AppSettings
         var result = new List<string>();
         if (!Learn.TryGetValue(dict, out var m)) return result;
 
-        var today = DateTime.Today;
+        var today = StudyDate();
         var todayStr = Today();
 
         foreach (var (word, p) in m)
@@ -255,7 +335,7 @@ public sealed class AppSettings
             switch (p.Stage)
             {
                 case 0:
-                    // 学习期：每天都要默写一次，直到连续 3 天无提示通过
+                    // 学习期：每天都要默写一次，直到累计 3 次无提示通过
                     // （不包括今天已判定过的，避免同一天重复出现）
                     if (p.LastOk != todayStr) result.Add(word);
                     break;
@@ -269,6 +349,14 @@ public sealed class AppSettings
                 case 2:
                     // 二次成功：满 30 天后再加入复习；同样按天去重
                     if (ParseDate(p.Due) is { } d2 && d2.Date <= today && p.LastOk != todayStr) result.Add(word);
+                    break;
+
+                case 3:
+                    // 已完成：定期抽查回炉，防止长期遗忘（可在设置里关闭）
+                    if (ReviewCompleted
+                        && ParseDate(p.Due) is { } d3 && d3.Date <= today
+                        && p.LastOk != todayStr)
+                        result.Add(word);
                     break;
             }
         }
@@ -286,7 +374,8 @@ public sealed class AppSettings
     ///   · 阶段 0：累计无提示通过满 3 次 → 阶段 1（首次学习成功），10 天后复习
     ///     （不要求自然日连续，中间断档不清零；每天最多计 1 次）
     ///   · 阶段 1：通过 → 阶段 2（二次学习成功），30 天后复习
-    ///   · 阶段 2：通过 → 阶段 3（学习完成）
+    ///   · 阶段 2：通过 → 阶段 3（学习完成），6 个月后抽查
+    ///   · 阶段 3：抽查通过 → 保持完成，再等 6 个月
     /// </summary>
     public string JudgeReview(string dict, string word, bool hinted)
     {
@@ -307,6 +396,7 @@ public sealed class AppSettings
                 // 不要求自然日连续：断档也不清零，通过一次累计一次（每天最多 1 次）
                 p.Streak++;
                 p.LastOk = today;
+                AddReviewedStat();
                 if (p.Streak >= 3)
                 {
                     p.Stage = 1;
@@ -318,12 +408,23 @@ public sealed class AppSettings
             case 1:
                 p.Stage = 2;
                 p.Due = PlusDays(30);
+                p.LastOk = today;
+                AddReviewedStat();
                 return "复习通过 → 二次学习成功，30 天后复习";
 
             case 2:
                 p.Stage = 3;
-                p.Due = "";
-                return "复习通过 → 学习完成 ✓";
+                p.Due = PlusDays(MaintainDays);
+                p.LastOk = today;
+                AddReviewedStat();
+                return $"复习通过 → 学习完成 ✓（{MaintainDays / 30} 个月后抽查）";
+
+            case 3:
+                // 维护抽查通过：保持完成状态，重新排下一次
+                p.Due = PlusDays(MaintainDays);
+                p.LastOk = today;
+                AddReviewedStat();
+                return $"抽查通过 ✓（{MaintainDays / 30} 个月后再抽查）";
 
             default:
                 return "已完成";
@@ -393,6 +494,7 @@ public sealed class AppSettings
     {
         Progress.Clear();
         Learn.Clear();
+        Stats.Clear();      // 每日统计与打卡也一并清掉
     }
 
     public void Reset()
@@ -406,11 +508,19 @@ public sealed class AppSettings
     }
 }
 
+/// <summary>某一天的统计：新学词数与复习通过数（用于每日目标和打卡）。</summary>
+public sealed class DayStat
+{
+    [JsonPropertyName("learned")] public int Learned { get; set; }
+    [JsonPropertyName("reviewed")] public int Reviewed { get; set; }
+}
+
 /// <summary>
 /// 单个单词的间隔复习进度。
 ///
 /// 阶段流转：
 ///   0 学习中 ──累计 3 次无提示默写通过──> 1 首次学习成功 ──10 天后复习通过──> 2 二次学习成功 ──30 天后复习通过──> 3 学习完成
+///   阶段 3 每 6 个月抽查一次，抽查不过则打回阶段 0 重学。
 ///
 /// 重置规则：**只有用提示会清零进度**（对错都清）；学习期（阶段 0）单纯拼错不影响。
 /// 阶段 1/2 的复习默写错误则打回阶段 0，需要重新学。
@@ -430,7 +540,7 @@ public sealed class WordProgress
     /// <summary>最近一次判定为通过的天，防止同一天重复计数。</summary>
     [JsonPropertyName("last_ok")] public string LastOk { get; set; } = "";
 
-    /// <summary>下次该复习的日期（阶段 1 为 +10 天，阶段 2 为 +30 天）。</summary>
+    /// <summary>下次该复习的日期（阶段 1 为 +10 天、阶段 2 为 +30 天、阶段 3 为 +180 天抽查）。</summary>
     [JsonPropertyName("due")] public string Due { get; set; } = "";
 }
 

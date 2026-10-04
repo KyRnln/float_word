@@ -95,6 +95,7 @@
                     <TextBlock x:Name="Info" HorizontalAlignment="Center"
                                FontFamily="Segoe UI Variable Text, Segoe UI"
                                FontSize="12"
+                               TextWrapping="Wrap"
                                Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
 
                     <!-- 释义：按词性分行显示，MaxWidth 由代码按屏幕宽度设置；用支持描边的控件 -->

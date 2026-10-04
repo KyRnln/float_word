@@ -126,7 +126,8 @@ public sealed class SettingsWindow : FluentWindow
         ProgressRow("阶段 1", () => Counts()[1], Total);
         ProgressRow("阶段 2", () => Counts()[2], Total);
         ProgressRow("已完成", () => Counts()[3], Total);
-        Note("分母「合计」= 当前词典的总词汇数。复习（阶段 0）= 学习中、每天默写的单词；阶段 1 = 首次成功（10 天后复习）；阶段 2 = 二次成功（30 天后复习）；已完成 = 通过全部复习。");
+        Note("分母「合计」= 当前词典的总词汇数。复习（阶段 0）= 学习中、每天默写的单词；阶段 1 = 首次成功（10 天后复习）；阶段 2 = 二次成功（30 天后复习）；已完成 = 通过全部复习，每 6 个月抽查一次。");
+        StatsRow();
 
         // 词典紧跟进度下方：切换词典即可看到该词典的进度
         Group("词典", () =>
@@ -135,6 +136,13 @@ public sealed class SettingsWindow : FluentWindow
                                 () => _s.Dict, v => { _main.ChangeDict(v); RefreshProgress(); });
             ImportRow();
         });
+
+        Section("学习节奏");
+
+        SliderRow("一天从几点开始", 0, 8, () => _s.DayStartHour, v => _s.DayStartHour = (int)Math.Round(v));
+        SliderRow("每日新学目标", 5, 100, () => _s.DailyGoal, v => _s.DailyGoal = (int)Math.Round(v));
+        Check("已完成词定期抽查（每 6 个月回炉一次）", () => _s.ReviewCompleted, v => _s.ReviewCompleted = v);
+        Note("「一天从几点开始」用于跨零点的判定：设为 4 点，则凌晨 4 点前都算前一天，熬夜复习不会被算成新的一天。目标值只用于上面的统计展示。");
 
         Section("外观");
 
@@ -486,6 +494,30 @@ public sealed class SettingsWindow : FluentWindow
     private void RefreshProgress()
     {
         foreach (var r in _progressRefreshers) r();
+    }
+
+    /// <summary>今日统计 + 连续打卡（随进度一起刷新）。</summary>
+    private void StatsRow()
+    {
+        var t = new TextBlock
+        {
+            FontFamily = TextFont,
+            FontSize = 13,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+        t.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorPrimaryBrush");
+        _target.Children.Add(t);
+
+        void Refresh()
+        {
+            int learned = _s.TodayLearned, reviewed = _s.TodayReviewed, goal = _s.DailyGoal;
+            string done = learned >= goal ? " ✓" : "";
+            t.Text = $"今日：新学 {learned}/{goal} 个{done} · 复习 {reviewed} 个 · 连续打卡 {_s.StreakDays()} 天";
+        }
+
+        Refresh();
+        _progressRefreshers.Add(Refresh);
     }
 
     private void Check(string label, Func<bool> get, Action<bool> set)
