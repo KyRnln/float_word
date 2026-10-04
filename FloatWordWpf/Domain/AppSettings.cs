@@ -237,10 +237,10 @@ public sealed class AppSettings
     }
 
     /// <summary>
-    /// 组成今天的复习队列：
-    ///   1) 阶段 0（学习中）且最近 3 天内学过、今天还没通过的词 —— 连续 3 天默写期
-    ///   2) 阶段 1（首次成功）已到期的词 —— 10 天后随机取 10 个
-    ///   3) 阶段 2（二次成功）已到期的词 —— 30 天后再考
+    /// 组成今天的复习队列（各阶段都不设数量上限，按各自的节奏来）：
+    ///   1) 阶段 0（学习中）今天还没通过的词 —— 每天必默写
+    ///   2) 阶段 1（首次成功）已到期的词 —— 10 天后加入
+    ///   3) 阶段 2（二次成功）已到期的词 —— 30 天后加入
     /// </summary>
     public List<string> BuildReviewQueue(string dict)
     {
@@ -249,7 +249,6 @@ public sealed class AppSettings
 
         var today = DateTime.Today;
         var todayStr = Today();
-        var stage1 = new List<string>();
 
         foreach (var (word, p) in m)
         {
@@ -262,26 +261,18 @@ public sealed class AppSettings
                     break;
 
                 case 1:
-                    // 首次成功：满 10 天后每天随机取 10 个重新加入复习
-                    if (ParseDate(p.Due) is { } d1 && d1.Date <= today) stage1.Add(word);
+                    // 首次成功：满 10 天后加入复习
+                    if (ParseDate(p.Due) is { } d1 && d1.Date <= today) result.Add(word);
                     break;
 
                 case 2:
-                    // 二次成功：满 30 天后再默写一次
+                    // 二次成功：满 30 天后再加入复习
                     if (ParseDate(p.Due) is { } d2 && d2.Date <= today) result.Add(word);
                     break;
             }
         }
 
-        // 首次成功的词：每次只随机取 10 个重新加入复习
-        var rng = new Random();
-        for (int i = stage1.Count - 1; i > 0; i--)
-        {
-            int j = rng.Next(i + 1);
-            (stage1[i], stage1[j]) = (stage1[j], stage1[i]);
-        }
-        result.AddRange(stage1.Take(10));
-
+        // 顺序由 StartReview 统一打乱，这里不再抽签
         return result;
     }
 

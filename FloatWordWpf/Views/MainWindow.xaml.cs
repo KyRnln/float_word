@@ -819,7 +819,7 @@ public partial class MainWindow : Window
     {
         if (Dict is null) return;
 
-        // 队列由 SRS 状态机给出：阶段 0 每日必默写 + 到期阶段 1（随机 10 个）+ 到期阶段 2
+        // 队列由 SRS 状态机给出：阶段 0 每日必默写 + 到期阶段 1 + 到期阶段 2（均不设数量上限）
         var names = _s.BuildReviewQueue(Dict.Name);
         var lookup = new Dictionary<string, WordItem>(StringComparer.OrdinalIgnoreCase);
         foreach (var item in Dict.Words) lookup[item.Word] = item;
