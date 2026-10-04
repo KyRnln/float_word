@@ -16,6 +16,9 @@ public partial class MainWindow : Window
     /// <summary>本组默写里同一个词连续输错多少次，就亮出答案并打回重新学习。</summary>
     private const int MaxWrongStreak = 5;
 
+    /// <summary>被退回重学的词，先跳过这么多词再插入（即排在后续学习队列的第 5 个）。</summary>
+    private const int RelearnGap = 4;
+
     /// <summary>亮出答案的时长（毫秒）。</summary>
     private const int AutoHintMs = 3000;
 
@@ -51,6 +54,7 @@ public partial class MainWindow : Window
     private readonly List<WordItem> _round = new();   // 本组已学的词（用于本组默写）
     private int _roundIndex;
     private readonly List<WordItem> _relearn = new(); // 本组默写连错 5 次、被退回需重新学习的词
+    private int _relearnCountdown;                    // 重学词插入前还要先学几个词（0 = 马上轮到）
     private readonly List<WordItem> _review = new();  // 复习队列（打乱后）
     private int _reviewIndex;
 
@@ -101,8 +105,14 @@ public partial class MainWindow : Window
     private List<WordItem>? ActiveList =>
         _review.Count > 0 ? _review
         : _phase == Phase.Dictation && _round.Count > 0 ? _round
-        : _relearn.Count > 0 ? _relearn
+        : RelearnActive ? _relearn
         : Dict?.Words;
+
+    /// <summary>
+    /// 被退回重学的词是否已轮到：排队倒计时归零才插进来。
+    /// 这样它排在「后续学习队列的第 5 个」（先学 RelearnGap 个正常词），而不是立刻重学。
+    /// </summary>
+    private bool RelearnActive => _phase == Phase.Study && _relearn.Count > 0 && _relearnCountdown <= 0;
 
     private int ActiveIndex
     {
@@ -110,7 +120,7 @@ public partial class MainWindow : Window
         {
             if (_review.Count > 0) return _reviewIndex;
             if (_phase == Phase.Dictation && _round.Count > 0) return _roundIndex;
-            if (_relearn.Count > 0) return 0;   // 待重学的词一次只呈现一个
+            if (RelearnActive) return 0;   // 待重学的词一次只呈现一个
             return _index;
         }
     }
@@ -250,6 +260,7 @@ public partial class MainWindow : Window
         _review.Clear();
         _reviewIndex = 0;
         _relearn.Clear();
+        _relearnCountdown = 0;
         ResetTyped();
         Render();
         ScheduleSave();
@@ -281,6 +292,7 @@ public partial class MainWindow : Window
         _review.Clear();
         _reviewIndex = 0;
         _relearn.Clear();
+        _relearnCountdown = 0;
         ResetTyped();
         Render();
     }
@@ -304,6 +316,7 @@ public partial class MainWindow : Window
         _review.Clear();
         _reviewIndex = 0;
         _relearn.Clear();
+        _relearnCountdown = 0;
         _phase = Phase.Study;
         _index = 0;
 
@@ -331,12 +344,16 @@ public partial class MainWindow : Window
 
         UpdateAiState(w);   // 换词时重置台词状态（仅学习模式）
 
-        // 进度：复习显示队列位置，本组默写显示组内位置，重学显示剩余个数，否则显示词典位置
+        // 进度：复习显示队列位置，本组默写显示组内位置，轮到的重学显示剩余个数，否则显示词典位置
         string pos;
         if (_review.Count > 0) pos = $"复习 {_reviewIndex + 1}/{_review.Count}";
         else if (_phase == Phase.Dictation && _round.Count > 0) pos = $"本组 {_roundIndex + 1}/{_round.Count}";
-        else if (_relearn.Count > 0) pos = $"重学 {_relearn.Count}";
-        else pos = $"{_index + 1}/{Dict!.Words.Count}";
+        else if (RelearnActive) pos = $"重学 {_relearn.Count}";
+        else
+        {
+            pos = $"{_index + 1}/{Dict!.Words.Count}";
+            if (_relearn.Count > 0) pos += $" · 待重学 {_relearn.Count}";
+        }
 
         // 词典位置后面跟该词的学习情况：未学 / 学习中 / 已通过 N/3 次 / 首次成功 / 二次成功 / 已完成
         string status = AppSettings.StatusText(_s.GetProgress(Dict!.Name, w.Word));
@@ -619,8 +636,13 @@ public partial class MainWindow : Window
             {
                 gaveUp = true;
                 _s.RemoveFromReview(Dict.Name, dw.Word);          // 不进入复习队列
-                if (!_relearn.Any(x => x.Word == dw.Word)) _relearn.Add(dw);  // 退回重新学习
-                Feedback.Text = $"✗ 连续错误 {MaxWrongStreak} 次：已显示答案，本词需重新学习";
+                if (!_relearn.Any(x => x.Word == dw.Word))
+                {
+                    // 退回重新学习，但排在后续学习队列的第 5 个（先正常学 RelearnGap 个词）
+                    if (_relearn.Count == 0) _relearnCountdown = RelearnGap;
+                    _relearn.Add(dw);
+                }
+                Feedback.Text = $"✗ 连错 {MaxWrongStreak} 次：{RelearnGap} 个词后重新学习本词";
             }
         }
 
@@ -741,10 +763,11 @@ public partial class MainWindow : Window
         // 3) 学习：把词记进本组、记录学习日期、词典下标前进
         if (_phase == Phase.Study && Dict is not null && Current is { } learned)
         {
-            // 待重新学习的词优先：学完一个就退出队列并重新纳入复习系统，词典下标不动
-            if (_relearn.Count > 0)
+            // 轮到的重学词：学完一个就退出队列并重新纳入复习系统，词典下标不动
+            if (RelearnActive)
             {
                 _relearn.RemoveAt(0);
+                _relearnCountdown = _relearn.Count > 0 ? RelearnGap : 0;   // 后面还有就再排一个
                 _s.MarkLearned(Dict.Name, learned.Word);
                 ResetTyped();
                 Feedback.Text = _relearn.Count > 0
@@ -761,6 +784,10 @@ public partial class MainWindow : Window
 
             _index = Dict.Words.Count == 0 ? 0 : (_index + 1) % Dict.Words.Count;
             Remember();
+
+            // 重学排队：每正常学完一个词，倒计时减一，归零后下一个就轮到重学词
+            // （所以被退回的词排在后续学习队列的第 5 个 = 先学 RelearnGap 个）
+            if (_relearn.Count > 0 && _relearnCountdown > 0) _relearnCountdown--;
 
             ResetTyped();
             if (_round.Count >= RoundSize)
@@ -788,8 +815,8 @@ public partial class MainWindow : Window
 
     private void Move(int delta)
     {
-        // 待重新学习的词必须学完才能过，不允许跳过
-        if (_phase == Phase.Study && _relearn.Count > 0) return;
+        // 已轮到的重学词必须学完才能过，不允许跳过（排队等待期间可以正常翻词）
+        if (RelearnActive) return;
 
         if (_review.Count > 0)
         {
