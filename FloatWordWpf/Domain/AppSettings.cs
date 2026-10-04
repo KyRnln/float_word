@@ -44,6 +44,10 @@ public sealed class AppSettings
     [JsonPropertyName("toolbar_pinned")] public bool ToolbarPinned { get; set; }
     [JsonPropertyName("show_dict_name")] public bool ShowDictName { get; set; } = true;
 
+    // ---- 窗口位置（屏幕绝对坐标，随配置一起保存 / 备份，换电脑可一起恢复）----
+    [JsonPropertyName("win_left")] public double? WinLeft { get; set; }
+    [JsonPropertyName("win_top")] public double? WinTop { get; set; }
+
     // ---- 发音 ----
     [JsonPropertyName("volume")] public double Volume { get; set; } = 60;
     [JsonPropertyName("rate")] public double Rate { get; set; } = -3;

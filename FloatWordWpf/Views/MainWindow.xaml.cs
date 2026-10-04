@@ -83,6 +83,9 @@ public partial class MainWindow : Window
 
         _toolbarTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(160) };
         _toolbarTimer.Tick += (_, _) => { _toolbarTimer.Stop(); MaybeHideToolbar(); };
+
+        // 窗口一移动就把屏幕坐标记进配置（含 WebDAV 备份）
+        LocationChanged += OnWindowLocationChanged;
     }
 
     // ---------- 对外给设置窗口用 ----------
@@ -145,7 +148,7 @@ public partial class MainWindow : Window
         _ready = true;
         ApplySettings();
         Render();
-        AnchorBottomRight();
+        RestoreOrAnchorPosition();
         Activate();
         Focus();
         SpeakIfAuto();
@@ -320,7 +323,7 @@ public partial class MainWindow : Window
             Phon.Text = "";
             Feedback.Text = "";
             Word.Word = "";
-            KeepCenterLater();
+            KeepAnchoredLater();
             return;
         }
 
@@ -386,7 +389,7 @@ public partial class MainWindow : Window
         HintBtn.Visibility = _phase == Phase.Review ? Visibility.Visible : Visibility.Collapsed;
 
         if (wordChanged) SlideWordIn();
-        KeepCenterLater();
+        KeepAnchoredLater();
     }
 
     /// <summary>换词时让单词从右向左缓动滑入。</summary>
@@ -405,6 +408,7 @@ public partial class MainWindow : Window
 
     private void Remember()
     {
+        SaveWindowPos();   // 位置也随配置落盘（放进 WebDAV 备份）
         if (Dict is null) return;
         // 复习/本组默写时，_index 仍指向词典位置，保存它不会破坏学习进度
         _s.SetIndex(Dict.Name, ProgressKey, _index);
@@ -938,46 +942,82 @@ public partial class MainWindow : Window
         var target = visible ? Visibility.Visible : Visibility.Collapsed;
         if (Toolbar.Visibility == target) return;
 
-        double bottom = Top + ActualHeight;
-        Toolbar.Visibility = target;
-
-        // 高度变化时保持底边不动 → 正文位置不跳
-        Dispatcher.BeginInvoke(new Action(() =>
-        {
-            UpdateLayout();
-            Top = bottom - ActualHeight;
-        }), DispatcherPriority.Loaded);
+        // 工具栏出现/隐藏会改变高度，按当前锚定边摆回去 → 正文位置不跳
+        Anchored(() => Toolbar.Visibility = target);
     }
 
     // ---------- 窗口位置 / 拖动 ----------
-    /// <summary>启动时的初始位置：屏幕右下角。</summary>
-    private void AnchorBottomRight()
+    /// <summary>
+    /// 启动定位：优先恢复上次保存的屏幕坐标（写在配置里，会随 WebDAV 备份一起走）；
+    /// 首次运行或坐标失效时退回屏幕右下角。坐标一律按工作区（不含任务栏）夹紧，保证不出屏。
+    /// </summary>
+    private void RestoreOrAnchorPosition()
     {
         UpdateLayout();
-        Left = SystemParameters.WorkArea.Right - ActualWidth - 30;
-        Top = SystemParameters.WorkArea.Bottom - ActualHeight - 30;
+        var wa = SystemParameters.WorkArea;
+
+        if (_s.WinLeft is { } l && _s.WinTop is { } t)
+        {
+            Left = Math.Clamp(l, wa.Left, Math.Max(wa.Left, wa.Right - ActualWidth));
+            Top = Math.Clamp(t, wa.Top, Math.Max(wa.Top, wa.Bottom - ActualHeight));
+            return;
+        }
+
+        Left = wa.Right - ActualWidth - 30;
+        Top = wa.Bottom - ActualHeight - 30;
     }
 
     /// <summary>
-    /// 内容变化（换词、换字号、换字体）会改变窗口尺寸。
-    /// 这里保证 **窗口中心不动**：否则窗口会以左上角为基准向右下生长，
-    /// 每换一个词整块文字都会跟着位移。
+    /// 内容变化（换词、换字号、显示工具栏等）会改变窗口尺寸。
+    /// 这里以**屏幕坐标为基准**：窗口中心落在屏幕右/下半边时固定右/下边，否则固定左/上边，
+    /// 尺寸变化后按该锚定边摆回去 —— 窗口就不会随着单词变化而整体移动，也不会长到屏幕外。
     /// </summary>
-    private void KeepCenterLater()
-    {
-        if (!IsLoaded || double.IsNaN(Left) || double.IsNaN(Top)) return;
+    private void KeepAnchoredLater() => Anchored(() => { });
 
-        // 先记下"旧尺寸下的中心"，布局更新后再按新尺寸把中心摆回去
-        double cx = Left + ActualWidth / 2;
-        double cy = Top + ActualHeight / 2;
+    private void Anchored(Action change)
+    {
+        if (!IsLoaded || double.IsNaN(Left) || double.IsNaN(Top))
+        {
+            change();
+            return;
+        }
+
+        var wa = SystemParameters.WorkArea;
+        bool fixRight = Left + ActualWidth / 2 > wa.Left + wa.Width / 2;
+        bool fixBottom = Top + ActualHeight / 2 > wa.Top + wa.Height / 2;
+
+        // 记下变化前的位置与锚定边
+        double left = Left, top = Top;
+        double rightEdge = Left + ActualWidth;
+        double bottomEdge = Top + ActualHeight;
+
+        change();
 
         Dispatcher.BeginInvoke(new Action(() =>
         {
             if (!IsLoaded) return;
             UpdateLayout();
-            Left = cx - ActualWidth / 2;
-            Top = cy - ActualHeight / 2;
+
+            double nl = fixRight ? rightEdge - ActualWidth : left;
+            double nt = fixBottom ? bottomEdge - ActualHeight : top;
+            Left = Math.Clamp(nl, wa.Left, Math.Max(wa.Left, wa.Right - ActualWidth));
+            Top = Math.Clamp(nt, wa.Top, Math.Max(wa.Top, wa.Bottom - ActualHeight));
         }), DispatcherPriority.Loaded);
+    }
+
+    /// <summary>把窗口当前的屏幕坐标写回配置（配置会被 WebDAV 一起备份）。</summary>
+    private void SaveWindowPos()
+    {
+        if (!IsLoaded || double.IsNaN(Left) || double.IsNaN(Top)) return;
+        _s.WinLeft = Left;
+        _s.WinTop = Top;
+    }
+
+    private void OnWindowLocationChanged(object? sender, EventArgs e)
+    {
+        if (!_ready) return;
+        SaveWindowPos();
+        ScheduleSave();
     }
 
     private void OnWindowMouseDown(object sender, MouseButtonEventArgs e)

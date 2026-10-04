@@ -346,6 +346,7 @@ dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=
 | `quote_hl_color` | AI 台词里命中当前单词的高亮色 |
 | `hint_color` / `hint_alpha` | 提示框颜色与透明度 |
 | `toolbar_pinned` / `show_dict_name` | 工具栏常显 / 显示词典名 |
+| `win_left` / `win_top` | 悬浮窗在屏幕上的绝对坐标（随配置 / WebDAV 备份一起保存与恢复） |
 | `volume` / `gain` / `rate` / `voice` | 音量、增益、语速、语音模型 |
 | `autoplay` / `speak_correct` / `speak_wrong` | 自动播报、答对播报、答错播报 |
 | `progress` | 每个词典的学习位置（下标） |
