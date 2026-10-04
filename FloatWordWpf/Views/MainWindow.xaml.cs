@@ -330,6 +330,8 @@ public partial class MainWindow : Window
     {
         if (!_ready) return;
 
+        ResetInfoStyle();   // 顶部信息行可能刚被「✓ 正确」占用过，这里恢复常规样式
+
         var w = Current;
         if (w is null)
         {
@@ -670,10 +672,15 @@ public partial class MainWindow : Window
         _busy = true;
         _verdict = "";
         _verdictBad = false;
-        Feedback.Text = "✓ 正确";
-        Feedback.Foreground = Theme.Brush(Theme.Green);
+
+        // 正确反馈**立即**顶到顶部「词典名」那一行，比底部反馈栏醒目；底部留空
+        Feedback.Text = "";
+        ShowTopFeedback("✓ 正确", Theme.Green);
+
         SoundFx.PlayDing();                 // 拼写正确的「叮」声反馈
-        if (_s.SpeakCorrect) Speak();
+        // 提示音与朗读都走 winmm 的 PlaySound（单通道）：紧接着朗读会把「叮」当场掐掉。
+        // 所以等提示音播完再朗读（这正是之前"听不到提示音"的原因）。
+        if (_s.SpeakCorrect) SpeakAfterDelay(SoundFx.DingMs);
 
         if (_phase != Phase.Study && Current is { } c)
         {
@@ -689,10 +696,7 @@ public partial class MainWindow : Window
             _verdict = _s.JudgeReview(Dict.Name, rw.Word, _hintUsed);
             _verdictBad = _hintUsed;
             if (_verdict.Length > 0)
-            {
-                Feedback.Text = "✓ " + _verdict;
-                Feedback.Foreground = Theme.Brush(_hintUsed ? Theme.Red : Theme.Green);
-            }
+                ShowTopFeedback("✓ " + _verdict, _hintUsed ? Theme.Red : Theme.Green);
         }
 
         // 判定文案可能较长，多留一点阅读时间
@@ -836,6 +840,29 @@ public partial class MainWindow : Window
     {
         if (Current is { } w) _tts.Speak(w.Word, _s);
     }
+
+    /// <summary>延后一点再朗读：提示音与朗读都走 winmm 的 PlaySound（单通道），立刻朗读会把提示音掐掉。</summary>
+    private async void SpeakAfterDelay(int ms)
+    {
+        try
+        {
+            await Task.Delay(ms);
+            if (IsLoaded) Speak();
+        }
+        catch { /* 关闭窗口时忽略 */ }
+    }
+
+    /// <summary>把反馈写到顶部「词典名」那一行（立即替换该行内容），比底部反馈栏醒目。</summary>
+    private void ShowTopFeedback(string text, string colorHex)
+    {
+        Info.Text = text;
+        Info.Foreground = Theme.Brush(colorHex);
+    }
+
+    /// <summary>恢复顶部信息行的常规样式（每次渲染时调用）。</summary>
+    private void ResetInfoStyle() =>
+        Info.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty,
+                                  "TextFillColorTertiaryBrush");
 
     // ---------- 复习模式 ----------
     private void StartReview()

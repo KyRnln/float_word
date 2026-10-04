@@ -10,6 +10,9 @@ namespace FloatWordWpf;
 /// </summary>
 public static class SoundFx
 {
+    /// <summary>「叮」的时长（毫秒）。winmm 的 PlaySound 是单通道，紧接着朗读会把提示音掐掉，调用方需要等这么久。</summary>
+    public const int DingMs = 320;
+
     private static SoundPlayer? _ding;
 
     /// <summary>播放「叮」——拼写正确时用。</summary>
@@ -30,7 +33,7 @@ public static class SoundFx
     private static byte[] MakeDingWav()
     {
         const int rate = 44100;
-        const double dur = 0.32;
+        double dur = DingMs / 1000.0;
         int n = (int)(rate * dur);
         var pcm = new short[n];
         for (int i = 0; i < n; i++)
