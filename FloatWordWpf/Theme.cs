@@ -53,18 +53,45 @@ public static class Theme
     /// <summary>全项目统一使用的等宽字体族：Cascadia Mono 优先，逐级回退，任何 Windows 上都落在等宽字体上。</summary>
     public const string MonoFontStack = "Cascadia Mono, Consolas, Courier New";
 
-    /// <summary>设置里可选的字体 —— **只提供等宽字体**（配合 CoerceMono 保证全局只用等宽）。</summary>
-    public static readonly string[] FontChoices =
-    {
-        "Cascadia Mono", "Cascadia Code", "Consolas", "Courier New",
-        "Lucida Console", "Lucida Sans Typewriter", "NSimSun"
-    };
-
-    private static readonly HashSet<string> MonoFamilies = new(System.StringComparer.OrdinalIgnoreCase)
+    /// <summary>常见等宽字体（Windows 自带或极常用）：即使自动检测漏判，也始终可用。</summary>
+    private static readonly HashSet<string> KnownMonospace = new(System.StringComparer.OrdinalIgnoreCase)
     {
         "Cascadia Mono", "Cascadia Code", "Consolas", "Courier New",
         "Lucida Console", "Lucida Sans Typewriter", "NSimSun", "MS Gothic", "MingLiU"
     };
+
+    /// <summary>判定等宽的探针字符：等宽字体里这些字符的推进宽度应完全一致。</summary>
+    private static readonly char[] MonoProbe = { 'i', 'W', 'm', 'l', 'M', '0', '1', '.' };
+
+    /// <summary>符号 / 图标字体：它们的 ASCII 也是等宽的，但选来当文字会导致方框乱码，排除。</summary>
+    private static readonly HashSet<string> SymbolFonts = new(System.StringComparer.OrdinalIgnoreCase)
+    {
+        "Marlett", "Wingdings", "Wingdings 2", "Wingdings 3", "Webdings", "Symbol",
+        "Bookshelf Symbol 7", "Segoe MDL2 Assets", "Segoe Fluent Icons",
+        "HoloLens MDL2 Assets", "Segoe UI Symbol", "Segoe UI Emoji"
+    };
+
+    private static HashSet<string>? _monoSet;
+    private static IReadOnlyList<string>? _fontChoices;
+
+    /// <summary>系统里自动检测出的等宽字体族（大小写不敏感）：只枚举一次并缓存。</summary>
+    private static HashSet<string> MonospaceSet => _monoSet ??= DetectMonospace();
+
+    /// <summary>
+    /// 设置里可选的字体 —— **只提供等宽字体**：常见等宽 ∪ 系统检测到的等宽，排序返回。
+    /// 首次访问时枚举系统字体，之后缓存；新装的等宽字体重启程序后即可被识别。
+    /// </summary>
+    public static IReadOnlyList<string> FontChoices
+    {
+        get
+        {
+            if (_fontChoices is not null) return _fontChoices;
+            var set = new SortedSet<string>(System.StringComparer.OrdinalIgnoreCase);
+            foreach (var k in KnownMonospace) set.Add(k);
+            foreach (var m in MonospaceSet) set.Add(m);
+            return _fontChoices = set.ToList();
+        }
+    }
 
     /// <summary>
     /// 把字体名强制收敛到等宽字体：旧配置里的非等宽字体（Times New Roman / Segoe UI / Arial…）
@@ -75,9 +102,61 @@ public static class Theme
         if (!string.IsNullOrWhiteSpace(name))
         {
             var first = name.Split(',')[0].Trim().Trim('\'', '"');
-            if (MonoFamilies.Contains(first)) return name;
+            if (KnownMonospace.Contains(first) || MonospaceSet.Contains(first)) return name;
         }
         return MonoFontStack;
+    }
+
+    /// <summary>枚举系统字体，挑出等宽的那些（按字形推进宽度是否一致判断）。</summary>
+    private static HashSet<string> DetectMonospace()
+    {
+        var found = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            foreach (var family in Fonts.SystemFontFamilies)
+            {
+                var name = family.Source;
+                if (name.StartsWith('@')) continue;          // 竖排变体（@宋体 之类）
+                if (SymbolFonts.Contains(name)) continue;    // 符号 / 图标字体
+                if (IsMonospace(family)) found.Add(name);
+            }
+        }
+        catch
+        {
+            // 枚举失败时退回到「常见等宽字体」清单（FontChoices / CoerceMono 里已包含）
+        }
+        return found;
+    }
+
+    private static bool IsMonospace(FontFamily family)
+    {
+        try
+        {
+            foreach (var typeface in family.GetTypefaces())
+                if (typeface.TryGetGlyphTypeface(out var gt) && IsMonospace(gt))
+                    return true;
+        }
+        catch { }
+        return false;
+    }
+
+    private static bool IsMonospace(GlyphTypeface gt)
+    {
+        var map = gt.CharacterToGlyphMap;
+        var widths = gt.AdvanceWidths;
+        double? width = null;
+        int matched = 0;
+
+        foreach (var ch in MonoProbe)
+        {
+            if (!map.TryGetValue(ch, out var glyph) || glyph == 0) continue;
+            if (!widths.TryGetValue(glyph, out var w) || w <= 0) continue;
+
+            if (width is null) width = w;
+            else if (Math.Abs(w - width.Value) > 1e-4) return false;
+            matched++;
+        }
+        return matched >= 4;   // 探针里至少有一半可用、且推进宽度一致
     }
 
     /// <summary>把 #RRGGBB 解析成 Color，非法输入回退到灰色。</summary>

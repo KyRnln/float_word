@@ -543,7 +543,7 @@ public sealed class SettingsWindow : FluentWindow
         g.Children.Add(cb);
     }
 
-    private ComboBox Choice(string label, string[] options, Func<string> get, Action<string> set)
+    private ComboBox Choice(string label, IReadOnlyList<string> options, Func<string> get, Action<string> set)
     {
         var g = NewRow();
         RowLabel(g, label);
