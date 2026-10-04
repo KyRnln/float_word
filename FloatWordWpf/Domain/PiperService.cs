@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Media;
 using System.Text.Json;
 using System.Windows;
-using System.Windows.Media;
 
 namespace FloatWordWpf;
 
@@ -22,7 +22,10 @@ namespace FloatWordWpf;
 /// </summary>
 public sealed class PiperService : IDisposable
 {
-    private readonly MediaPlayer _player = new();
+    // 用 winmm 的 SoundPlayer 播放，而不是 WPF 的 MediaPlayer：
+    // MediaPlayer 依赖 Windows「媒体功能」，用户禁用「Windows Media Player」后就没声了；
+    // SoundPlayer 走 PlaySound，不受该开关影响。代价是没有独立音量 → 把音量并入采样增益。
+    private SoundPlayer? _player;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _procLock = new();
 
@@ -77,15 +80,12 @@ public sealed class PiperService : IDisposable
         int my = Interlocked.Increment(ref _gen);
 
         // 立刻停掉上一句（"只播最新"）
-        try
-        {
-            _player.Stop();
-            _player.Close();
-        }
-        catch { }
+        Stop();
 
-        double gain = Math.Clamp(s.Gain / 100.0, 1.0, 2.0);
+        // 增益与音量一起写进采样：SoundPlayer 没有独立音量通道
+        double gain = Math.Clamp(s.Gain / 100.0, 0, 2);
         double volume = Math.Clamp(s.Volume / 100.0, 0, 1);
+        double factor = gain * volume;
         // piper 的 length_scale 与语速成反比：1.0 正常，0.5 快一倍
         double lengthScale = Math.Pow(2, -Math.Clamp(s.Rate, -10, 10) / 10.0);
         string voice = s.Voice;
@@ -107,7 +107,7 @@ public sealed class PiperService : IDisposable
                     // 合成期间又来了新请求 → 丢弃这条
                     if (my != Volatile.Read(ref _gen)) return;
 
-                    if (gain > 1.001) wav = AmplifyWav(wav, gain);
+                    if (Math.Abs(factor - 1) > 0.001) wav = AmplifyWav(wav, factor);
                     File.WriteAllBytes(_playFile, wav);
                 }
                 finally
@@ -120,9 +120,10 @@ public sealed class PiperService : IDisposable
                     if (_disposed || my != Volatile.Read(ref _gen)) return;
                     try
                     {
-                        _player.Volume = volume;
-                        _player.Open(new Uri(_playFile));
-                        _player.Play();
+                        // 每次都新建实例：SoundPlayer 会缓存已加载的音频，复用会一直播旧内容
+                        var p = new SoundPlayer(_playFile);
+                        _player = p;
+                        p.Play();
                     }
                     catch { }
                 });
@@ -326,12 +327,9 @@ public sealed class PiperService : IDisposable
 
     public void Stop()
     {
-        try
-        {
-            _player.Stop();
-            _player.Close();
-        }
-        catch { }
+        var p = _player;
+        _player = null;
+        try { p?.Stop(); } catch { }
     }
 
     public void Dispose()
