@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -969,8 +970,8 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// 内容变化（换词、换字号、显示工具栏等）会改变窗口尺寸。
-    /// 这里以**屏幕坐标为基准**：窗口中心落在屏幕右/下半边时固定右/下边，否则固定左/上边，
-    /// 尺寸变化后按该锚定边摆回去 —— 窗口就不会随着单词变化而整体移动，也不会长到屏幕外。
+    /// 这里以**单词为中心**：记下变化前单词中心的屏幕坐标，尺寸变化后把窗口摆回去，
+    /// 让单词始终停在原来的位置 —— 释义再长（撑宽 / 换更多行）也不会带着单词漂移。
     /// </summary>
     private void KeepAnchoredLater() => Anchored(() => { });
 
@@ -983,13 +984,7 @@ public partial class MainWindow : Window
         }
 
         var wa = SystemParameters.WorkArea;
-        bool fixRight = Left + ActualWidth / 2 > wa.Left + wa.Width / 2;
-        bool fixBottom = Top + ActualHeight / 2 > wa.Top + wa.Height / 2;
-
-        // 记下变化前的位置与锚定边
-        double left = Left, top = Top;
-        double rightEdge = Left + ActualWidth;
-        double bottomEdge = Top + ActualHeight;
+        var before = WordAnchor();   // 变化前：单词中心的屏幕坐标
 
         change();
 
@@ -998,11 +993,41 @@ public partial class MainWindow : Window
             if (!IsLoaded) return;
             UpdateLayout();
 
-            double nl = fixRight ? rightEdge - ActualWidth : left;
-            double nt = fixBottom ? bottomEdge - ActualHeight : top;
+            var now = WordAnchorInWindow();   // 变化后：单词中心相对窗口左上角的位置
+            double nl = before.X - now.X;
+            double nt = before.Y - now.Y;
+
+            // 兜底夹紧：万一窗口贴到屏幕边缘放不下，至少不飞出屏幕
             Left = Math.Clamp(nl, wa.Left, Math.Max(wa.Left, wa.Right - ActualWidth));
             Top = Math.Clamp(nt, wa.Top, Math.Max(wa.Top, wa.Bottom - ActualHeight));
         }), DispatcherPriority.Loaded);
+    }
+
+    /// <summary>单词中心当前的屏幕坐标。</summary>
+    private Point WordAnchor()
+    {
+        var p = WordAnchorInWindow();
+        return new Point(Left + p.X, Top + p.Y);
+    }
+
+    /// <summary>
+    /// 单词中心相对窗口左上角的坐标。
+    /// 用 LayoutInformation.GetLayoutSlot 取**布局**位置，避开换词时单词的滑入渲染变换（RenderTransform）。
+    /// </summary>
+    private Point WordAnchorInWindow()
+    {
+        var slot = LayoutInformation.GetLayoutSlot(Word);
+        if (slot.IsEmpty)
+            return new Point(ActualWidth / 2, ActualHeight / 2);   // 尚未布局时退回窗口中心
+
+        double ox = 0, oy = 0;
+        if (Word.Parent is UIElement parent)
+        {
+            var o = parent.TranslatePoint(new Point(0, 0), this);
+            ox = o.X;
+            oy = o.Y;
+        }
+        return new Point(ox + slot.X + slot.Width / 2, oy + slot.Y + slot.Height / 2);
     }
 
     /// <summary>把窗口当前的屏幕坐标写回配置（配置会被 WebDAV 一起备份）。</summary>
