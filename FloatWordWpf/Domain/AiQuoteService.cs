@@ -37,11 +37,16 @@ public sealed class AiQuoteService
 
     private static readonly string SystemPrompt =
         "你是英语学习助手。请为给定的英文单词找一句包含该单词的经典电影台词。" +
+        "硬性要求：quote 里必须**逐字出现该单词本身**（允许其屈折变化，如 abandon → abandoned / abandoning；" +
+        "大小写不限），**绝不能**换成词根、近义词或其它单词。" +
+        "反例：单词 worthwhile 时，返回「Some people are worth melting for.」是错的（里面只有 worth，没有 worthwhile）。" +
+        "优先使用真实存在的经典台词；如果确实找不到含该词的真实台词，就自己写一句自然、电影台词风格的英文句子，" +
+        "但必须包含该单词，此时 movie 与 year 都返回空字符串（不要编造片名）。" +
         $"台词要尽量简短：优先 {PreferQuoteWords} 个单词以内，任何情况下都不要超过 {MaxQuoteWords} 个单词。" +
         "只输出一个 JSON 对象，不要输出 markdown 代码块、不要任何解释，格式：" +
-        "{\"quote\":\"英文台词原文（尽量短，最多 " + MaxQuoteWords + " 个单词）\"," +
+        "{\"quote\":\"英文台词原文（必须含给定单词，尽量短，最多 " + MaxQuoteWords + " 个单词）\"," +
         "\"translation\":\"台词的中文翻译（同样简洁）\"," +
-        "\"movie\":\"电影的中文片名（不要书名号）\",\"year\":\"上映年份，4 位数字\"}";
+        "\"movie\":\"电影的中文片名（不要书名号；自拟句子时留空）\",\"year\":\"上映年份，4 位数字（自拟句子时留空）\"}";
 
     private static readonly JsonSerializerOptions ParseOptions = new() { PropertyNameCaseInsensitive = true };
 
@@ -58,8 +63,9 @@ public sealed class AiQuoteService
     /// <summary>取台词。useCache=false 时忽略缓存（用于设置页的「测试」）。取消时抛出 OperationCanceledException。</summary>
     public async Task<AiQuoteOutcome> FetchAsync(string word, AppSettings s, CancellationToken ct, bool useCache = true)
     {
-        // 缓存里可能是限长之前存下的长台词，读出来也统一截断，保证显示一致
-        if (useCache && s.GetAiQuote(word) is { } cached)
+        // 缓存里可能是限长之前存下的长台词，读出来也统一截断，保证显示一致。
+        // 另外：缓存里也可能是"不含该词"的旧结果（提示词修好之前存的），这种直接忽略、重新请求。
+        if (useCache && s.GetAiQuote(word) is { } cached && ContainsWord(cached.Quote, word))
         {
             cached.Quote = ClampWords(cached.Quote);
             return new(cached, null);
@@ -107,6 +113,15 @@ public sealed class AiQuoteService
             {
                 Log.Warn($"AI 返回内容无法解析 word={word}：{Brief(body)}");
                 return new(null, "返回内容无法解析：" + Brief(body));
+            }
+
+            // 台词必须真的含这个词（允许屈折变化）——模型偶尔会拿词根/近义词糊弄，
+            // 例如 worthwhile 返回 "Some people are worth melting for."。这种直接判失败，
+            // 不显示也不缓存，下次显示该词时会重新请求。
+            if (!ContainsWord(quote.Quote, word))
+            {
+                Log.Warn($"AI 返回的台词不含单词 word={word}：{Brief(quote.Quote)}");
+                return new(null, $"台词里没有「{word}」，已忽略（下次会重新请求）");
             }
 
             if (useCache) s.SetAiQuote(word, quote);   // 缓存，避免重复请求（省钱、也更快）
@@ -199,6 +214,20 @@ public sealed class AiQuoteService
         return words.Length <= MaxQuoteWords
             ? s
             : string.Join(' ', words.Take(MaxQuoteWords)) + "…";
+    }
+
+    /// <summary>台词里是否真的含这个单词（忽略大小写；允许屈折变化：abandon → abandoned）。</summary>
+    private static bool ContainsWord(string quote, string word)
+    {
+        if (quote.Length == 0 || word.Length == 0) return false;
+        try
+        {
+            return Regex.IsMatch(quote, @"\b" + Regex.Escape(word) + @"\w*", RegexOptions.IgnoreCase);
+        }
+        catch
+        {
+            return quote.Contains(word, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     /// <summary>截断长文本，便于塞进一行提示里。</summary>
