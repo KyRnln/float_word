@@ -60,7 +60,11 @@
                                        Margin="0,0,2,0" Click="OnSpeakClick" ToolTip="朗读单词">
                                 <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE995;" />
                             </ui:Button>
-                            <!-- 提示：按住显示答案，松开隐藏（复习模式才出现；用了会清零该词进度） -->
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <!-- 提示：按住显示答案，松开隐藏（复习模式才出现；用了会清零该词进度）
+                                 放在原「上一个 / 下一个」按钮的位置 -->
                             <ui:Button x:Name="HintBtn" Appearance="Transparent" Height="32" Padding="10,0"
                                        Margin="0,0,2,0" Visibility="Collapsed"
                                        PreviewMouseLeftButtonDown="OnHintDown"
@@ -68,17 +72,6 @@
                                        MouseLeave="OnHintLeave"
                                        ToolTip="按住显示答案（用提示会清零该词的通过次数）">
                                 <TextBlock Text="提示" FontSize="13" VerticalAlignment="Center" />
-                            </ui:Button>
-                        </StackPanel>
-
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                            <ui:Button Appearance="Transparent" Width="32" Height="32" Padding="0"
-                                       Margin="0,0,2,0" Click="OnPrevClick" ToolTip="上一个 (←)">
-                                <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE892;" />
-                            </ui:Button>
-                            <ui:Button Appearance="Transparent" Width="32" Height="32" Padding="0"
-                                       Margin="0,0,2,0" Click="OnNextClick" ToolTip="下一个 (→)">
-                                <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE893;" />
                             </ui:Button>
                             <ui:Button Appearance="Transparent" Width="32" Height="32" Padding="0"
                                        Margin="0,0,2,0" Click="OnGearClick" ToolTip="设置">

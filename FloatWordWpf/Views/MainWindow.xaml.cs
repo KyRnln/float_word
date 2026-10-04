@@ -928,10 +928,6 @@ public partial class MainWindow : Window
         Focus();
     }
 
-    private void OnPrevClick(object sender, RoutedEventArgs e) { Move(-1); Focus(); }
-
-    private void OnNextClick(object sender, RoutedEventArgs e) { Move(1); Focus(); }
-
     private void OnGearClick(object sender, RoutedEventArgs e)
     {
         if (_settingsWin is { IsLoaded: true })
