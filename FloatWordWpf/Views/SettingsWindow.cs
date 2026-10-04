@@ -129,6 +129,8 @@ public sealed class SettingsWindow : FluentWindow
         Note("分母「合计」= 当前词典的总词汇数。复习（阶段 0）= 学习中、每天默写的单词；阶段 1 = 首次成功（10 天后复习）；阶段 2 = 二次成功（30 天后复习）；已完成 = 通过全部复习，每 6 个月抽查一次。");
         StatsRow();
 
+        Gap();      // 与下面的「词典」折叠组之间留出间隙
+
         // 词典紧跟进度下方：切换词典即可看到该词典的进度
         Group("词典", () =>
         {
@@ -297,6 +299,10 @@ public sealed class SettingsWindow : FluentWindow
         t.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorSecondaryBrush");
         _target.Children.Add(t);
     }
+
+    /// <summary>插入一段竖直留白（两个模块之间没有 Section 标题分隔时用）。</summary>
+    private void Gap(double height = 16) =>
+        _target.Children.Add(new Border { Height = height, Background = Brushes.Transparent });
 
     /// <summary>
     /// 折叠分组：标题栏是一个 Fluent 透明按钮，点击展开 / 收起内容。
