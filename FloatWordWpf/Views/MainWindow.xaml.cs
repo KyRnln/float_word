@@ -223,6 +223,8 @@ public partial class MainWindow : Window
         Word.TextBrush = Theme.Brush(_s.TextColor);
         Word.OutlineBrush = Theme.Brush(_s.OutlineColor);
         Word.HintBrush = Theme.Brush(_s.HintColor, _s.HintAlpha / 100.0);
+        // 学习 / 默写 / 复习统一用等宽槽位排版：字母间距一致，切模式时单词不会跳动
+        Word.UniformCells = true;
         Word.Relayout();
 
         // AI 配置（开关 / 地址 / Key / 模型）变了 → 作废当前台词，下次渲染重新请求
@@ -399,8 +401,6 @@ public partial class MainWindow : Window
         bool wordChanged = w.Word != _shownWord;
         _shownWord = w.Word;
 
-        // 默写/复习用等宽槽位排版（占位横线等宽、间距一致）；学习模式按字母真实宽度
-        Word.UniformCells = _phase != Phase.Study;
         // 顺序要紧：先写 Typed 再写 Word —— Word 会触发 Relayout，把待输入框瞬间归位到新词；
         // 若反序，会先用旧词的格子播一次无意义的滑动动画。
         Word.Typed = _typed;
