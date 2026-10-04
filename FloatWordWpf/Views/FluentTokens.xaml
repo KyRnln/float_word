@@ -117,8 +117,10 @@
                                 <Thumb Width="16" Height="16" Focusable="False" IsTabStop="False">
                                     <Thumb.Template>
                                         <ControlTemplate TargetType="Thumb">
-                                            <!-- 实心圆点（强调色），不要描边，否则会看成空心圈 -->
-                                            <Ellipse Fill="{DynamicResource AccentFillColorDefaultBrush}" />
+                                            <!-- 实心圆点 + Fluent 描边（之前只留填充、丢了边框） -->
+                                            <Ellipse Fill="{DynamicResource AccentFillColorDefaultBrush}"
+                                                     Stroke="{DynamicResource ControlStrongStrokeColorDefaultBrush}"
+                                                     StrokeThickness="1" />
                                         </ControlTemplate>
                                     </Thumb.Template>
                                 </Thumb>
