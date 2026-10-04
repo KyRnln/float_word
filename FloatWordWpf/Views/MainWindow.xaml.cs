@@ -72,8 +72,7 @@ public partial class MainWindow : Window
 
     private bool _hintHeld;          // 提示按钮是否正被按住（按住显示答案）
     private bool _hintUsed;          // 本词是否用过提示（用提示会清零该词进度）
-    private string _verdict = "";    // 上一次复习判定结果（留到下次输入前）
-    private bool _verdictBad;        // 判定结果是否为负向（用提示 / 默写错误）
+    private string _verdict = "";    // 上一次复习判定结果
 
     private bool _skipSaveOnClose;   // 恢复备份后重启时用：别让关闭时的保存盖掉刚恢复的配置
 
@@ -603,11 +602,11 @@ public partial class MainWindow : Window
     {
         _busy = true;
         _verdict = "";
-        _verdictBad = true;
         Word.Error = true;
-        Feedback.Text = "✗ 输入错误，已清空";
-        Feedback.Foreground = Theme.Brush(Theme.Red);
         if (_s.SpeakWrong) Speak();
+
+        // 反馈统一显示在顶部「词典名」那一行（红色），与拼对的「✓ 正确」对称
+        string msg = "✗ 输入错误，已清空";
 
         // 复习判定：阶段 0 单纯拼错不影响进度；阶段 1/2 拼错则打回阶段 0 重新学
         // （用提示则对错都清零，见 JudgeReview / JudgeWrong）
@@ -617,7 +616,7 @@ public partial class MainWindow : Window
             if (v.Length > 0)
             {
                 _verdict = v;
-                Feedback.Text = "✗ " + v;
+                msg = "✗ " + v;
             }
         }
 
@@ -636,9 +635,11 @@ public partial class MainWindow : Window
                     if (_relearn.Count == 0) _relearnCountdown = RelearnGap;
                     _relearn.Add(dw);
                 }
-                Feedback.Text = $"✗ 连错 {MaxWrongStreak} 次：{RelearnGap} 个词后重新学习本词";
+                msg = $"✗ 连错 {MaxWrongStreak} 次：{RelearnGap} 个词后重新学习本词";
             }
         }
+
+        ShowTopFeedback(msg, Theme.Red);
 
         if (gaveUp)
         {
@@ -646,6 +647,7 @@ public partial class MainWindow : Window
             Word.Error = false;
             _autoReveal = true;
             Render();
+            ShowTopFeedback(msg, Theme.Red);   // Render 会复位顶部，这里补回提示
             await Task.Delay(AutoHintMs);
             if (!IsLoaded) return;
 
@@ -657,13 +659,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        await Task.Delay(450);
+        // 判定结果较长时多留一点阅读时间
+        await Task.Delay(_verdict.Length > 0 ? 1500 : 450);
         if (!IsLoaded) return;
 
         _busy = false;
         _typed = 0;
         Word.Error = false;
-        Feedback.Text = _verdict;
         Render();
     }
 
@@ -671,7 +673,6 @@ public partial class MainWindow : Window
     {
         _busy = true;
         _verdict = "";
-        _verdictBad = false;
 
         // 正确反馈**立即**顶到顶部「词典名」那一行，比底部反馈栏醒目；底部留空
         Feedback.Text = "";
@@ -694,7 +695,6 @@ public partial class MainWindow : Window
         if (_phase == Phase.Review && Dict is not null && Current is { } rw)
         {
             _verdict = _s.JudgeReview(Dict.Name, rw.Word, _hintUsed);
-            _verdictBad = _hintUsed;
             if (_verdict.Length > 0)
                 ShowTopFeedback("✓ " + _verdict, _hintUsed ? Theme.Red : Theme.Green);
         }
@@ -726,9 +726,7 @@ public partial class MainWindow : Window
                 return;
             }
             ResetTyped();
-            // 把上一条判定结果留在反馈栏，直到下次输入再被替换
-            Feedback.Text = _verdict;
-            Feedback.Foreground = Theme.Brush(_verdictBad ? Theme.Red : Theme.Green);
+            // 判定结果已经在顶部状态栏展示过（延迟 1.5s 阅读），这里不再往底部反馈栏写
             Render();
             SpeakIfAuto();
             return;
