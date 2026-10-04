@@ -412,9 +412,6 @@ public sealed class SettingsWindow : FluentWindow
             Maximum = max,
             Value = Math.Clamp(get(), min, max),
             VerticalAlignment = VerticalAlignment.Center,
-            // 不设左右外边距：否则轨道两端会各留 8px 空隙，够不到单元格边缘
-            Margin = new Thickness(0),
-            Padding = new Thickness(0),
             IsSnapToTickEnabled = true,
             TickFrequency = 1
         };
