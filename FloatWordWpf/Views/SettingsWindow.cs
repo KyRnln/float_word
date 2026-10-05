@@ -25,8 +25,8 @@ namespace FloatWordWpf;
 /// </summary>
 public sealed class SettingsWindow : FluentWindow
 {
-    // 界面 UI 用 Windows 默认字体（Segoe UI），可正常启用 ClearType；只有内容（单词/释义/音标·台词）才用等宽
-    private static readonly FontFamily TextFont = new("Segoe UI Variable Text, Segoe UI");
+    // 界面 UI 用「系统 UI 默认字体」（中文 Windows = 微软雅黑 UI，英文 = Segoe UI），避免写死字体导致中文回退发虚
+    private static readonly FontFamily TextFont = SystemFonts.MessageFontFamily;
 
     private readonly MainWindow _main;
     private readonly AppSettings _s;

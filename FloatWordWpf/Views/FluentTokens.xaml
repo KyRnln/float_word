@@ -11,9 +11,12 @@
     <!-- Fluent 图标字体（Win11 优先，Win10 回退到 MDL2） -->
     <FontFamily x:Key="FluentIconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
 
-    <!-- 承载字体：界面 UI 用 Windows 默认字体（Segoe UI），以正常启用 ClearType -->
-    <FontFamily x:Key="FluentTextFont">Segoe UI Variable Text, Segoe UI</FontFamily>
-    <FontFamily x:Key="FluentDisplayFont">Segoe UI Variable Display, Segoe UI</FontFamily>
+    <!--
+      承载字体：直接用「系统 UI 默认字体」（SystemFonts.MessageFontFamily）。
+      中文 Windows 上是「微软雅黑 UI」、英文 Windows 上是 Segoe UI —— 写死 Segoe UI 会让中文走字体回退，小字号下发虚。
+    -->
+    <x:Static x:Key="FluentTextFont" Member="SystemFonts.MessageFontFamily" />
+    <x:Static x:Key="FluentDisplayFont" Member="SystemFonts.MessageFontFamily" />
     <!-- 等宽字体只留给内容（单词 / 释义 / 音标·台词）使用 -->
     <FontFamily x:Key="FluentMonoFont">Cascadia Mono, Consolas, Courier New</FontFamily>
 
