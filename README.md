@@ -149,7 +149,7 @@
 | 运行时 | .NET 8 Desktop Runtime（从源码构建需 .NET 8 SDK） |
 | 网络 | 默认不需要（语音与词典全部离线）；开启「AI 台词」后需要联网 |
 
-> 界面基于 **Fluent 2 / Windows 11 深色令牌** 设计，在 Windows 11 上观感最佳。
+> 界面基于 **Fluent 2 设计令牌**（WPF-UI），支持**跟随系统 / 深色 / 浅色**主题。
 
 ---
 
@@ -184,7 +184,7 @@ cd FloatWordWpf
 dotnet publish -c Release -r win-x64 --self-contained false -o ..\publish
 ```
 
-生成 `publish\`（约 **108 MB**，其中 `dicts\` + `piper\` 就占约 101 MB）：
+生成 `publish\`（约 **110 MB**，其中 `dicts\` + `piper\` 就占约 101 MB）：
 
 | 内容 | 说明 |
 | --- | --- |
