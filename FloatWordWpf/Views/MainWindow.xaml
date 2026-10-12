@@ -20,6 +20,7 @@
         MouseLeftButtonDown="OnWindowMouseDown"
         MouseEnter="OnWindowMouseEnter"
         MouseLeave="OnWindowMouseLeave"
+        MouseMove="OnWindowMouseMove"
         Closed="OnWindowClosed">
 
     <!--
@@ -28,7 +29,7 @@
       而该位图以白色为底，于是半透明卡片被"洗白"（实测 bg=85 时卡片变成 #4B4B4B 而不是 #292929）。
       改用「多层递减透明度的圆角矩形」堆出柔和外沿，纯 alpha 合成，颜色才准。
     -->
-    <Grid Margin="28">
+    <Grid x:Name="OuterGrid" Margin="28">
         <Grid>
             <Grid x:Name="ShadowLayer" Opacity="0" IsHitTestVisible="False">
                 <Border Margin="-9" CornerRadius="17" Background="#0A000000" />
@@ -41,7 +42,8 @@
                     Padding="20,14"
                     BorderThickness="0"
                     SnapsToDevicePixels="True">
-                <StackPanel MinWidth="286">
+                <!-- VerticalAlignment=Center：常规模式下高度贴合内容（无影响）；全屏铺满时把内容垂直居中 -->
+                <StackPanel MinWidth="286" VerticalAlignment="Center">
 
                     <!-- 工具栏：默认隐藏，鼠标移入才显示 -->
                     <Grid x:Name="Toolbar" Visibility="Collapsed" Margin="0,0,0,10">
@@ -72,6 +74,10 @@
                                        MouseLeave="OnHintLeave"
                                        ToolTip="按住显示答案（用提示会清零该词的通过次数）">
                                 <TextBlock Text="提示" FontSize="13" VerticalAlignment="Center" />
+                            </ui:Button>
+                            <ui:Button Appearance="Transparent" Width="32" Height="32" Padding="0"
+                                       Margin="0,0,2,0" Click="OnFullscreenClick" ToolTip="全屏">
+                                <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE740;" />
                             </ui:Button>
                             <ui:Button Appearance="Transparent" Width="32" Height="32" Padding="0"
                                        Margin="0,0,2,0" Click="OnGearClick" ToolTip="设置">
@@ -125,6 +131,17 @@
                                Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
                 </StackPanel>
             </Border>
+
+            <!-- 全屏模式：鼠标移到屏幕顶部时出现的「缩小（退出全屏）」图标。
+                 全屏背景恒为纯黑，这里固定浅色前景 + 淡白底，避免浅色主题下图标看不清 -->
+            <ui:Button x:Name="ExitFullscreenBtn"
+                       Appearance="Transparent" Width="44" Height="32" Padding="0"
+                       HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,10,0,0"
+                       Background="#1AFFFFFF" Foreground="#FFFFFF"
+                       Visibility="Collapsed"
+                       Click="OnExitFullscreenClick" ToolTip="退出全屏 (Esc)">
+                <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE73F;" />
+            </ui:Button>
         </Grid>
     </Grid>
 </Window>

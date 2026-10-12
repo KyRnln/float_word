@@ -76,6 +76,10 @@ public partial class MainWindow : Window
 
     private bool _skipSaveOnClose;   // 恢复备份后重启时用：别让关闭时的保存盖掉刚恢复的配置
 
+    private bool _isFullscreen;      // 全屏模式：纯黑铺满主屏，鼠标移到顶部可退出
+    private double _restoreLeft;     // 进入全屏前的窗口坐标，退出时还原
+    private double _restoreTop;
+
     public MainWindow(AppSettings settings, List<WordDictionary> library)
     {
         _s = settings;
@@ -237,7 +241,14 @@ public partial class MainWindow : Window
             CancelAiQuote();
         }
 
-        if (_s.ToolbarPinned) SetToolbarVisible(true);
+        if (_s.ToolbarPinned && !_isFullscreen) SetToolbarVisible(true);
+
+        // 全屏时始终铺纯黑、无阴影（设置变更 / 主题切换不会破坏全屏观感）
+        if (_isFullscreen)
+        {
+            Card.Background = Theme.Brush("#000000");
+            ShadowLayer.Opacity = 0;
+        }
     }
 
     /// <summary>设置窗口改完设置后调用。</summary>
@@ -561,7 +572,9 @@ public partial class MainWindow : Window
         switch (e.Key)
         {
             case Key.Escape:
-                Close();
+                // 全屏时 Esc 先退出全屏，再按一次才退出程序
+                if (_isFullscreen) ExitFullscreen();
+                else Close();
                 e.Handled = true;
                 return;
             case Key.Return:
@@ -966,9 +979,84 @@ public partial class MainWindow : Window
 
     private void OnCloseClick(object sender, RoutedEventArgs e) => Close();
 
+    // ---------- 全屏 ----------
+    /// <summary>工具栏「全屏」：铺满整个屏幕、纯黑背景，隐藏常规工具栏。</summary>
+    private void OnFullscreenClick(object sender, RoutedEventArgs e)
+    {
+        EnterFullscreen();
+        Focus();
+    }
+
+    private void OnExitFullscreenClick(object sender, RoutedEventArgs e)
+    {
+        ExitFullscreen();
+        Focus();
+    }
+
+    private void EnterFullscreen()
+    {
+        if (_isFullscreen) return;
+
+        // 先记下进入前的坐标（全屏时 SaveWindowPos 会被跳过）
+        _restoreLeft = Left;
+        _restoreTop = Top;
+        _isFullscreen = true;
+
+        // 纯黑铺满：去掉阴影留白、圆角与投影，并收起常规工具栏
+        OuterGrid.Margin = new Thickness(0);
+        Card.CornerRadius = new CornerRadius(0);
+        Card.Background = Theme.Brush("#000000");
+        ShadowLayer.Opacity = 0;
+        Toolbar.Visibility = Visibility.Collapsed;
+        ExitFullscreenBtn.Visibility = Visibility.Collapsed;
+
+        // 固定尺寸铺满主屏：必须先切到 Manual，否则 Width/Height 会被 SizeToContent 忽略
+        SizeToContent = SizeToContent.Manual;
+        Left = 0;
+        Top = 0;
+        Width = SystemParameters.PrimaryScreenWidth;
+        Height = SystemParameters.PrimaryScreenHeight;
+    }
+
+    private void ExitFullscreen()
+    {
+        if (!_isFullscreen) return;
+        _isFullscreen = false;
+
+        ExitFullscreenBtn.Visibility = Visibility.Collapsed;
+
+        // 还原阴影留白与圆角，回到「随内容自适应尺寸」（Width/Height 清回 auto，避免残留全屏尺寸）
+        OuterGrid.Margin = new Thickness(28);
+        Card.CornerRadius = new CornerRadius(8);
+        SizeToContent = SizeToContent.WidthAndHeight;
+        Width = double.NaN;
+        Height = double.NaN;
+        UpdateLayout();
+
+        // 摆回进入全屏前的位置（按工作区夹紧，保证不出屏）
+        var wa = SystemParameters.WorkArea;
+        Left = Math.Clamp(_restoreLeft, wa.Left, Math.Max(wa.Left, wa.Right - ActualWidth));
+        Top = Math.Clamp(_restoreTop, wa.Top, Math.Max(wa.Top, wa.Bottom - ActualHeight));
+
+        ApplySettings();   // 还原卡片底色 / 阴影不透明度 / 工具栏常显
+        if (!_s.ToolbarPinned && IsMouseOver) SetToolbarVisible(true);
+    }
+
+    /// <summary>全屏时鼠标移到屏幕顶部 → 显示「缩小（退出全屏）」图标；移开则隐藏。</summary>
+    private void OnWindowMouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_isFullscreen) return;
+
+        bool nearTop = e.GetPosition(this).Y <= 64;
+        var target = nearTop ? Visibility.Visible : Visibility.Collapsed;
+        if (ExitFullscreenBtn.Visibility != target)
+            ExitFullscreenBtn.Visibility = target;
+    }
+
     // ---------- 工具栏显示 / 隐藏 ----------
     private void OnWindowMouseEnter(object sender, MouseEventArgs e)
     {
+        if (_isFullscreen) return;   // 全屏下不显示常规工具栏
         if (!_s.ToolbarPinned) SetToolbarVisible(true);
     }
 
@@ -1028,6 +1116,7 @@ public partial class MainWindow : Window
     /// </summary>
     private Point? SuspendedWordAnchor()
     {
+        if (_isFullscreen) return null;   // 全屏下窗口铺满屏幕，不做锚定
         if (!IsLoaded || double.IsNaN(Left) || double.IsNaN(Top)) return null;
         return WordAnchor();   // 变化前：单词中心的屏幕坐标
     }
@@ -1086,6 +1175,7 @@ public partial class MainWindow : Window
     /// <summary>把窗口当前的屏幕坐标写回配置（配置会被 WebDAV 一起备份）。</summary>
     private void SaveWindowPos()
     {
+        if (_isFullscreen) return;   // 全屏坐标(0,0)不是用户摆放的位置，别写进配置
         if (!IsLoaded || double.IsNaN(Left) || double.IsNaN(Top)) return;
         _s.WinLeft = Left;
         _s.WinTop = Top;
@@ -1103,6 +1193,7 @@ public partial class MainWindow : Window
         if (e.OriginalSource is DependencyObject d && IsInteractive(d)) return;
         Activate();
         Focus();
+        if (_isFullscreen) return;   // 全屏下不允许拖动（会破坏铺满屏幕）
         try
         {
             DragMove();
