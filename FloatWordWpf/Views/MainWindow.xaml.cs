@@ -25,9 +25,13 @@ public partial class MainWindow : Window
     /// <summary>显示单词多久后，用 AI 台词替换音标（毫秒）。</summary>
     private const int AiQuoteDelayMs = 2000;
 
-    /// <summary>换词时单词从右侧滑入的距离（像素）与时长（毫秒）。</summary>
-    private const double WordSlideFrom = 44;
-    private const int WordSlideMs = 260;
+    /// <summary>换词 / 加载时内容元素「从右向左渐入」的起始位移（像素）与时长（毫秒）。</summary>
+    private const double EnterSlideFrom = 44;
+    private const int EnterSlideMs = 260;
+
+    /// <summary>全屏进度条填充色：进行中用调暗的强调色，达成每日目标后用绿色。</summary>
+    private static readonly Brush ProgressFillBrush = Theme.Brush("#9960CDFF");
+    private static readonly Brush ProgressDoneBrush = Theme.Brush("#D96CCB5F");
 
     private enum Phase
     {
@@ -41,7 +45,7 @@ public partial class MainWindow : Window
 
     private readonly AppSettings _s;
     private readonly List<WordDictionary> _lib;
-    private readonly PiperService _tts = new();
+    private readonly TtsService _tts = new();
     private readonly DispatcherTimer _saveTimer;
     private readonly DispatcherTimer _toolbarTimer;
     private readonly DispatcherTimer _fullscreenIdleTimer;   // 全屏：5 秒无鼠标移动就隐藏光标
@@ -70,6 +74,7 @@ public partial class MainWindow : Window
     private MovieQuote? _aiQuote;    // 当前要显示的台词（null = 仍显示音标）
     private string _aiSignature = "\u0000";   // AI 配置指纹：变了就作废当前台词重新请求
     private string _shownWord = "\u0000";     // 上一次渲染的单词：变化时播「从右向左」滑入
+    private bool _quoteVisible;               // 上次渲染时台词块是否可见：音标 → 台词切换时播渐入
 
     private bool _hintHeld;          // 提示按钮是否正被按住（按住显示答案）
     private bool _hintUsed;          // 本词是否用过提示（用提示会清零该词进度）
@@ -80,6 +85,7 @@ public partial class MainWindow : Window
     private bool _isFullscreen;      // 全屏模式：纯黑铺满主屏，鼠标移到顶部可退出
     private double _restoreLeft;     // 进入全屏前的窗口坐标，退出时还原
     private double _restoreTop;
+    private bool _topHover;          // 全屏下鼠标是否靠屏幕顶部（靠顶部时进度条让位给「缩小」按钮）
 
     public MainWindow(AppSettings settings, List<WordDictionary> library)
     {
@@ -402,8 +408,17 @@ public partial class MainWindow : Window
 
         // 学习模式下，显示满 2 秒后用 AI 台词块替换音标
         bool showQuote = revealed && _phase == Phase.Study && _aiQuote is not null && _aiWord == w.Word;
-        Phon.Visibility = showQuote ? Visibility.Collapsed : Visibility.Visible;
-        Quote.Visibility = showQuote ? Visibility.Visible : Visibility.Collapsed;
+        double alpha = Math.Clamp(_s.TextAlpha / 100.0, 0, 1);
+
+        // 音标：窗口模式下被台词替换（交叉淡化）；全屏模式下台词在屏幕底部，音标照常显示
+        bool phonVisible = !showQuote || _isFullscreen;
+        if (phonVisible)
+        {
+            ShowPhon();
+            Phon.Text = revealed ? w.Phonetic : "";
+            Phon.TextBrush = revealed ? Theme.Brush(_s.PhonColor) : Theme.Brush(Theme.Muted);
+        }
+
         if (showQuote)
         {
             QuoteLeft.Text = _aiQuote!.LeftLines();     // 左列：台词 + 翻译
@@ -413,13 +428,32 @@ public partial class MainWindow : Window
             // 没有片名时右列是空的，分隔点也就没有存在的意义
             QuoteDot.Visibility = _aiQuote.MovieLine().Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
+
+        // 台词显隐 / 动画。台词是延迟 2 秒才加载的（不随换词触发）
+        if (_isFullscreen)
+        {
+            // 全屏：台词在底部，独立渐入（不替换音标）
+            bool first = showQuote && !_quoteVisible;
+            _quoteVisible = showQuote;
+            Quote.Visibility = showQuote ? Visibility.Visible : Visibility.Collapsed;
+            if (first) AnimateIn(Quote, alpha);
+        }
+        else if (showQuote)
+        {
+            // 窗口模式：音标淡出 + 台词在同一格渐入（交叉淡化）
+            if (!_quoteVisible)
+            {
+                _quoteVisible = true;
+                CrossFadeToQuote();
+            }
+        }
         else
         {
-            Phon.Text = revealed ? w.Phonetic : "";
-            Phon.TextBrush = revealed ? Theme.Brush(_s.PhonColor) : Theme.Brush(Theme.Muted);
+            _quoteVisible = false;
+            Quote.Visibility = Visibility.Collapsed;
         }
 
-        // 换到别的单词时，让单词从右侧缓动滑入（渲染变换，不影响居中与窗口测量）
+        // 换到别的单词时，让各内容元素一起从右侧缓动渐入（渲染变换，不影响居中与窗口测量）
         bool wordChanged = w.Word != _shownWord;
         _shownWord = w.Word;
 
@@ -433,22 +467,86 @@ public partial class MainWindow : Window
         // 提示按钮只在复习模式下出现
         HintBtn.Visibility = _phase == Phase.Review ? Visibility.Visible : Visibility.Collapsed;
 
-        if (wordChanged) SlideWordIn();
+        if (wordChanged) AnimateContentIn();
+        UpdateFullscreenProgress();   // 全屏进度条随「今日新学」统计刷新
         ApplyAnchor(anchor);
     }
 
-    /// <summary>换词时让单词从右向左缓动滑入。</summary>
-    private void SlideWordIn()
+    /// <summary>
+    /// 换词 / 加载内容时：让各内容元素（状态栏 / 注释 / 单词 / 音标·台词 / 反馈）
+    /// 一起「从右向左渐入」——X 位移缓动到 0，透明度同时 0 → 当前设定值。
+    /// 用渲染变换 + 动画，不影响居中与窗口测量。
+    /// </summary>
+    private void AnimateContentIn()
     {
-        var tt = new TranslateTransform(WordSlideFrom, 0);
-        Word.RenderTransform = tt;
+        double alpha = Math.Clamp(_s.TextAlpha / 100.0, 0, 1);
+        foreach (var el in new UIElement[] { Info, Mean, Word, Phon, Quote, Feedback })
+            AnimateIn(el, alpha);
+    }
+
+    /// <summary>
+    /// 单个元素从右侧渐入：X 从 +EnterSlideFrom 缓动到 0，透明度 0 → 目标值。
+    /// 基准值取「结束状态」并让动画 Stop（播完自动交还给基准值），避免动画残留挡住后续设置。
+    /// </summary>
+    private static void AnimateIn(UIElement el, double targetOpacity)
+    {
+        var tt = new TranslateTransform(0, 0);
+        el.RenderTransform = tt;
+
+        var dur = new Duration(TimeSpan.FromMilliseconds(EnterSlideMs));
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+
         tt.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation
         {
-            From = WordSlideFrom,
+            From = EnterSlideFrom,
             To = 0,
-            Duration = new Duration(TimeSpan.FromMilliseconds(WordSlideMs)),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            Duration = dur,
+            EasingFunction = ease,
+            FillBehavior = FillBehavior.Stop
         });
+        el.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation
+        {
+            From = 0,
+            To = targetOpacity,
+            Duration = dur,
+            EasingFunction = ease,
+            FillBehavior = FillBehavior.Stop
+        });
+    }
+
+    /// <summary>
+    /// 音标 → 台词：音标淡出、台词从右向左渐入。两者在同一格内重叠，构成交叉淡化；
+    /// 音标淡出播完再折叠，避免两行同时占位把窗口撑高。
+    /// </summary>
+    private void CrossFadeToQuote()
+    {
+        double alpha = Math.Clamp(_s.TextAlpha / 100.0, 0, 1);
+
+        Quote.Visibility = Visibility.Visible;
+        AnimateIn(Quote, alpha);   // 台词：从右向左 + 渐显
+
+        var fadeOut = new DoubleAnimation
+        {
+            From = alpha,
+            To = 0,
+            Duration = new Duration(TimeSpan.FromMilliseconds(EnterSlideMs)),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            FillBehavior = FillBehavior.Stop
+        };
+        fadeOut.Completed += (_, _) =>
+        {
+            if (!_quoteVisible) return;   // 期间又切回音标了，交给 RestorePhon 处理
+            Phon.Visibility = Visibility.Collapsed;
+        };
+        Phon.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+    }
+
+    /// <summary>显示音标：取消可能还在播的淡出动画、还原透明度（显隐由 Render 统一决定）。</summary>
+    private void ShowPhon()
+    {
+        Phon.BeginAnimation(UIElement.OpacityProperty, null);
+        Phon.Opacity = Math.Clamp(_s.TextAlpha / 100.0, 0, 1);
+        Phon.Visibility = Visibility.Visible;
     }
 
     private void Remember()
@@ -1029,6 +1127,15 @@ public partial class MainWindow : Window
 
         _fullscreenIdleTimer.Stop();
         _fullscreenIdleTimer.Start();   // 5 秒无鼠标移动 → 隐藏光标
+
+        _topHover = false;
+
+        // 全屏：台词固定显示在屏幕底部（把台词块从内容区挪进底部容器）
+        PhonQuoteCell.Children.Remove(Quote);
+        FullscreenQuoteHost.Children.Add(Quote);
+        FullscreenQuoteHost.Visibility = Visibility.Visible;
+
+        Render();   // 重新渲染以应用全屏下的台词显隐与进度条
     }
 
     private void ExitFullscreen()
@@ -1040,7 +1147,14 @@ public partial class MainWindow : Window
         Mouse.OverrideCursor = null;                    // 恢复光标
         FullscreenBtn.Visibility = Visibility.Visible;  // 回到窗口模式，「全屏」按钮恢复
         ExitFullscreenBtn.Visibility = Visibility.Collapsed;
+        UpdateFullscreenProgress();                     // 退出全屏 → 收起顶部进度条
         SetToolbarInkLight(false);   // 恢复按钮前景跟随主题
+
+        // 台词挪回内容区（窗口模式下音标 / 台词交叉淡化）
+        FullscreenQuoteHost.Children.Remove(Quote);
+        PhonQuoteCell.Children.Add(Quote);
+        FullscreenQuoteHost.Visibility = Visibility.Collapsed;
+        _quoteVisible = false;   // 置回未显示，交给下面的 Render 重新判定 / 交叉淡化
 
         // 还原阴影留白与圆角，回到「随内容自适应尺寸」（Width/Height 清回 auto，避免残留全屏尺寸）
         OuterGrid.Margin = new Thickness(28);
@@ -1057,6 +1171,7 @@ public partial class MainWindow : Window
 
         ApplySettings();   // 还原卡片底色 / 阴影不透明度 / 工具栏常显
         if (!_s.ToolbarPinned && IsMouseOver) SetToolbarVisible(true);
+        Render();          // 回到窗口模式：重新判定台词显隐（必要时交叉淡化）
     }
 
     /// <summary>
@@ -1073,9 +1188,31 @@ public partial class MainWindow : Window
         _fullscreenIdleTimer.Start();
 
         bool nearTop = e.GetPosition(this).Y <= 64;
-        var target = nearTop ? Visibility.Visible : Visibility.Collapsed;
-        if (ExitFullscreenBtn.Visibility != target)
-            ExitFullscreenBtn.Visibility = target;
+        _topHover = nearTop;
+        ExitFullscreenBtn.Visibility = nearTop ? Visibility.Visible : Visibility.Collapsed;
+        UpdateFullscreenProgress();   // 靠顶部时进度条让位给「缩小（退出全屏）」按钮
+    }
+
+    /// <summary>
+    /// 全屏顶部「今日学习进度」进度条：仅在「全屏 + 设置开关打开 + 鼠标不靠顶部」时显示，
+    /// 并按「今日新学 / 每日目标」刷新填充宽度。鼠标靠顶部时让位给「缩小（退出全屏）」按钮。
+    /// 颜色刻意调暗，不抢正文；达成每日目标后填充变绿。
+    /// </summary>
+    private void UpdateFullscreenProgress()
+    {
+        if (!_isFullscreen || !_s.FullscreenProgress || _topHover)
+        {
+            FullscreenProgress.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        int goal = _s.DailyGoal;
+        bool done = goal > 0 && _s.TodayLearned >= goal;
+        double pct = goal > 0 ? Math.Clamp(_s.TodayLearned / (double)goal, 0, 1) : 0;
+
+        FullscreenProgressFill.Width = FullscreenProgress.Width * pct;
+        FullscreenProgressFill.Background = done ? ProgressDoneBrush : ProgressFillBrush;
+        FullscreenProgress.Visibility = Visibility.Visible;
     }
 
     /// <summary>全屏下 5 秒没有任何鼠标移动：收起工具栏与「缩小」图标，并隐藏光标（移动鼠标即恢复）。</summary>

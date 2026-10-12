@@ -104,25 +104,28 @@
                     <!-- 单词：逐字绘制 + 几何描边 -->
                     <local:WordCanvas x:Name="Word" HorizontalAlignment="Center" Margin="0,6,0,0" />
 
-                    <!-- 音标：独立字号与描边 -->
-                    <local:OutlinedText x:Name="Phon" HorizontalAlignment="Center" Margin="0,4,0,0" />
+                    <!-- 音标 / AI 台词：放在同一格内重叠，切换时做交叉淡化（音标淡出 + 台词渐入） -->
+                    <Grid x:Name="PhonQuoteCell" Margin="0,4,0,0">
+                        <!-- 音标：独立字号与描边 -->
+                        <local:OutlinedText x:Name="Phon" HorizontalAlignment="Center" VerticalAlignment="Top" />
 
-                    <!-- AI 台词：左列「台词 + 翻译」，中间分隔点，右列「《片名》 + （年份）」，两列并排 -->
-                    <Grid x:Name="Quote" HorizontalAlignment="Center" Margin="0,4,0,0" Visibility="Collapsed">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <local:OutlinedText x:Name="QuoteLeft" Grid.Column="0" VerticalAlignment="Top" />
-                        <!-- 分隔点：垂直居中于左右两列的行间，而不是贴在首行 -->
-                        <local:OutlinedText x:Name="QuoteDot" Grid.Column="1" Text="·"
-                                            Margin="14,0,14,0" VerticalAlignment="Center" />
-                        <StackPanel Grid.Column="2" VerticalAlignment="Top">
-                            <!-- 片名定列宽，年份居中于片名之下 -->
-                            <local:OutlinedText x:Name="QuoteMovie" HorizontalAlignment="Left" />
-                            <local:OutlinedText x:Name="QuoteYear" HorizontalAlignment="Center" />
-                        </StackPanel>
+                        <!-- AI 台词：左列「台词 + 翻译」，中间分隔点，右列「《片名》 + （年份）」，两列并排 -->
+                        <Grid x:Name="Quote" HorizontalAlignment="Center" VerticalAlignment="Top" Visibility="Collapsed">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <local:OutlinedText x:Name="QuoteLeft" Grid.Column="0" VerticalAlignment="Top" />
+                            <!-- 分隔点：垂直居中于左右两列的行间，而不是贴在首行 -->
+                            <local:OutlinedText x:Name="QuoteDot" Grid.Column="1" Text="·"
+                                                Margin="14,0,14,0" VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="2" VerticalAlignment="Top">
+                                <!-- 片名定列宽，年份居中于片名之下 -->
+                                <local:OutlinedText x:Name="QuoteMovie" HorizontalAlignment="Left" />
+                                <local:OutlinedText x:Name="QuoteYear" HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Grid>
                     </Grid>
 
                     <!-- 反馈：Caption 级 -->
@@ -131,6 +134,22 @@
                                FontSize="12"
                                Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
                 </StackPanel>
+            </Border>
+
+            <!-- 全屏模式：台词固定显示在屏幕底部（进入全屏时把台词块挪进这里） -->
+            <Grid x:Name="FullscreenQuoteHost"
+                  HorizontalAlignment="Stretch" VerticalAlignment="Bottom"
+                  Margin="0,0,0,48" Visibility="Collapsed" />
+
+            <!-- 全屏模式：顶部「今日学习进度」进度条（Win11 风格：细圆角轨道 + 强调色填充）。
+                 鼠标移到屏幕顶部时隐藏它，把该位置让给「缩小（退出全屏）」按钮 -->
+            <Border x:Name="FullscreenProgress"
+                    HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,10,0,0"
+                    Width="200" Height="4" CornerRadius="2"
+                    Background="#26FFFFFF" Visibility="Collapsed">
+                <Border x:Name="FullscreenProgressFill"
+                        HorizontalAlignment="Left" Width="0"
+                        CornerRadius="2" Background="#9960CDFF" />
             </Border>
 
             <!-- 全屏模式：鼠标移到屏幕顶部时出现的「缩小（退出全屏）」图标。

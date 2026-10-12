@@ -209,19 +209,53 @@ public sealed class SettingsWindow : FluentWindow
             Note("背景颜色 / 透明度只作用于悬浮卡片底色，与界面深浅色无关；工具栏、设置页的深浅色始终跟随 Windows 系统设置。");
         });
 
+        // 全屏模式：与其他设置项一致，做成可折叠组
+        Group("全屏模式", () =>
+        {
+            Check("全屏时顶部显示「今日学习进度」进度条", () => _s.FullscreenProgress, v => _s.FullscreenProgress = v);
+            Note("进度 = 今日新学 / 每日目标。鼠标移到屏幕顶部时，进度条会临时让位给「缩小（退出全屏）」按钮。");
+        });
+
         Section("其他设置");
 
-        Group("语音播报（Piper 离线神经语音）", () =>
+        Group("语音播报", () =>
         {
+            var engine = Choice("TTS 引擎", new[] { "本地 Piper（离线）", "火山引擎（联网）" },
+                   () => _s.TtsEngine == "volcano" ? "火山引擎（联网）" : "本地 Piper（离线）",
+                   v => _s.TtsEngine = v.StartsWith("火山") ? "volcano" : "piper");
+            Note("本地 Piper 完全离线，但对部分音素（如 measure 的 /ʒ/）发音可能不完整；" +
+                 "火山引擎（豆包语音合成）需联网 + API Key，发音更标准。");
+
             var voices = PiperService.AvailableVoices();
-            if (voices.Length == 0)
+
+            // 两套引擎的专属配置各放一个子面板，按所选引擎整块显示 / 隐藏
+            var piperPanel = SubPanel(() =>
             {
-                Note("未找到 Piper 引擎或语音模型：请确认程序目录下存在 piper\\bin\\piper.exe 与 piper\\voices\\*.onnx");
-            }
-            else
+                if (voices.Length == 0)
+                    Note("未找到本地 Piper 引擎或语音模型，需程序目录下存在 piper\\bin\\piper.exe 与 piper\\voices\\*.onnx。");
+                else
+                    Choice("Piper 音色", voices, () => _s.Voice, v => _s.Voice = v);
+            });
+
+            var volcanoPanel = SubPanel(() =>
             {
-                Choice("语音", voices, () => _s.Voice, v => _s.Voice = v);
+                TextRow("火山 API Key", () => _s.VolcanoApiKey, v => _s.VolcanoApiKey = v);
+                Choice("火山资源 ID", new[] { "seed-tts-2.0", "seed-tts-1.0", "seed-tts-1.0-concurr" },
+                       () => _s.VolcanoResourceId, v => _s.VolcanoResourceId = v);
+                TextRow("火山音色 speaker", () => _s.VolcanoSpeaker, v => _s.VolcanoSpeaker = v);
+                TestTtsRow();
+                Note("API Key 在控制台「API Key 管理」获取，speaker 从「音色库」复制（学英文请选英文音色）。" +
+                     "资源 ID 要与音色版本匹配：2.0 音色配 seed-tts-2.0，1.0 音色配 seed-tts-1.0。");
+            });
+
+            void SyncEngineRows()
+            {
+                bool volcano = _s.TtsEngine == "volcano";
+                piperPanel.Visibility = volcano ? Visibility.Collapsed : Visibility.Visible;
+                volcanoPanel.Visibility = volcano ? Visibility.Visible : Visibility.Collapsed;
             }
+            SyncEngineRows();
+            engine.SelectionChanged += (_, _) => SyncEngineRows();
 
             SliderRow("播报音量", 0, 100, () => _s.Volume, v => _s.Volume = v);
             SliderRow("播报增益 %", 100, 200, () => _s.Gain, v => _s.Gain = v);
@@ -229,6 +263,8 @@ public sealed class SettingsWindow : FluentWindow
             Check("新单词自动播报", () => _s.Autoplay, v => _s.Autoplay = v);
             Check("答对后播报一次", () => _s.SpeakCorrect, v => _s.SpeakCorrect = v);
             Check("错误后播报一次", () => _s.SpeakWrong, v => _s.SpeakWrong = v);
+            Note("「播报音量」对两套引擎都生效；「播报增益」只对本地 Piper 生效" +
+                 "（火山引擎在本地按平均能量把响度对齐到统一水平，音量 0–100 为相对大小）。");
         });
 
         Group("AI 台词（OpenAI 兼容接口）", () =>
@@ -386,6 +422,22 @@ public sealed class SettingsWindow : FluentWindow
         _target = panel;
         build();
         _target = prev;
+    }
+
+    /// <summary>
+    /// 把一组设置项装进一个子面板并返回它，便于整体显示 / 隐藏（例如按所选 TTS 引擎切换）。
+    /// 用法与 <see cref="Group"/> 一致：期间的 SliderRow / ColorRow / Check 都写进这个面板。
+    /// </summary>
+    private Panel SubPanel(Action build)
+    {
+        var panel = new StackPanel();
+        _target.Children.Add(panel);
+
+        var prev = _target;
+        _target = panel;
+        build();
+        _target = prev;
+        return panel;
     }
 
     private void Note(string text)
@@ -711,6 +763,55 @@ public sealed class SettingsWindow : FluentWindow
         _main.ClearProgress();   // 清数据并把悬浮窗拉回学习模式第一个词
         RefreshProgress();       // 刷新本页进度条
         await Info("学习进度已清空，所有单词回到「未学」状态。");
+    }
+
+    /// <summary>语音合成测试：按当前配置真实合成一个单词并播放，把结果或错误原因显示出来。</summary>
+    private void TestTtsRow()
+    {
+        var g = NewRow();
+        var btn = new FluentButton
+        {
+            Content = "测试语音合成…",
+            Appearance = ControlAppearance.Secondary,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            MinWidth = 130,
+            FontFamily = TextFont,
+            FontSize = 13
+        };
+        btn.Click += async (_, _) =>
+        {
+            btn.IsEnabled = false;
+            try
+            {
+                if (_s.TtsEngine != "volcano")
+                {
+                    await Info("当前引擎是「本地 Piper」，无需填写火山配置，也不用测试。");
+                    return;
+                }
+
+                const string probe = "measure";   // 顺便验证 /ʒ/ 这类音素是否读得完整
+                var (wav, err) = await VolcanoTtsService.SynthesizeAsync(probe, _s, CancellationToken.None);
+                if (wav is null)
+                {
+                    Log.Warn("火山语音测试失败：" + err);
+                    await ShowResultAsync("合成失败：\n\n" + err, "语音测试");
+                    return;
+                }
+
+                VolcanoTtsService.Play(wav);
+                Log.Info($"火山语音测试成功，{wav.Length} 字节");
+                await ShowResultAsync($"合成成功，正在播放单词「{probe}」。\n\n音频 {wav.Length / 1024} KB。", "语音测试");
+            }
+            catch (Exception ex)
+            {
+                Log.Error("火山语音测试异常", ex);
+                await ShowResultAsync("测试出错：\n\n" + ex.Message, "语音测试");
+            }
+            finally { btn.IsEnabled = true; }
+        };
+        Grid.SetColumn(btn, 0);
+        Grid.SetColumnSpan(btn, 3);
+        g.Children.Add(btn);
     }
 
     /// <summary>AI 配置测试：用当前配置真实发一次请求，把台词或错误原因原样显示出来。</summary>

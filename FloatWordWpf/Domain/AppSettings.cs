@@ -45,6 +45,8 @@ public sealed class AppSettings
     [JsonPropertyName("font_bold")] public bool FontBold { get; set; } = true;
     [JsonPropertyName("toolbar_pinned")] public bool ToolbarPinned { get; set; }
     [JsonPropertyName("show_dict_name")] public bool ShowDictName { get; set; } = true;
+    /// <summary>全屏模式下是否在屏幕顶部显示「今日学习进度」进度条。</summary>
+    [JsonPropertyName("fullscreen_progress")] public bool FullscreenProgress { get; set; } = true;
 
     /// <summary>
     /// 历史遗留字段：界面主题统一跟随系统，不再提供手动切换。
@@ -57,6 +59,14 @@ public sealed class AppSettings
     [JsonPropertyName("win_top")] public double? WinTop { get; set; }
 
     // ---- 发音 ----
+    /// <summary>TTS 引擎：piper（本地离线）/ volcano（火山引擎豆包语音合成，需联网）。</summary>
+    [JsonPropertyName("tts_engine")] public string TtsEngine { get; set; } = "piper";
+    /// <summary>火山引擎 API Key（新版控制台 → API Key 管理）。</summary>
+    [JsonPropertyName("volcano_api_key")] public string VolcanoApiKey { get; set; } = "";
+    /// <summary>火山引擎资源 ID：seed-tts-2.0 / seed-tts-1.0 / seed-tts-1.0-concurr（须与音色版本匹配）。</summary>
+    [JsonPropertyName("volcano_resource_id")] public string VolcanoResourceId { get; set; } = "seed-tts-2.0";
+    /// <summary>火山引擎音色 ID（控制台 → 音色库，英文单词建议选英文音色）。</summary>
+    [JsonPropertyName("volcano_speaker")] public string VolcanoSpeaker { get; set; } = "";
     [JsonPropertyName("volume")] public double Volume { get; set; } = 60;
     [JsonPropertyName("rate")] public double Rate { get; set; } = -3;
     [JsonPropertyName("gain")] public double Gain { get; set; } = 100;
@@ -162,6 +172,10 @@ public sealed class AppSettings
 
         // 界面主题固定跟随系统
         UiTheme = "system";
+
+        // TTS 引擎只允许 piper / volcano
+        if (TtsEngine is not ("piper" or "volcano")) TtsEngine = "piper";
+        if (string.IsNullOrWhiteSpace(VolcanoResourceId)) VolcanoResourceId = "seed-tts-2.0";
 
         // 全局只用等宽字体：旧配置里的非等宽字体一律收敛到等宽
         FontFamily = Theme.CoerceMono(FontFamily);
