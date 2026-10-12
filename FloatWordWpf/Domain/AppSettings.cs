@@ -17,6 +17,8 @@ public sealed class AppSettings
     // 词典默认仍为 CET4：Dict 留空时取词典列表的第一个（排序后即 CET4）。
     [JsonPropertyName("dict")] public string Dict { get; set; } = "";
     [JsonPropertyName("bg_alpha")] public double BgAlpha { get; set; } = 0;
+    /// <summary>悬浮卡片背景颜色（与 bg_alpha 一起决定卡片底色，与界面深浅色无关）。</summary>
+    [JsonPropertyName("bg_color")] public string BgColor { get; set; } = Theme.Bg;
     [JsonPropertyName("text_alpha")] public double TextAlpha { get; set; } = 100;
     [JsonPropertyName("font_size")] public double FontSize { get; set; } = 72;
     [JsonPropertyName("phon_size")] public double PhonSize { get; set; } = 25;
@@ -45,8 +47,8 @@ public sealed class AppSettings
     [JsonPropertyName("show_dict_name")] public bool ShowDictName { get; set; } = true;
 
     /// <summary>
-    /// 界面主题：system / dark / light（默认跟随系统）。
-    /// 只影响设置窗口与工具栏等 Fluent 控件；浮窗的文字颜色仍在「外观」里单独配置。
+    /// 历史遗留字段：界面主题统一跟随系统，不再提供手动切换。
+    /// 保留键名只为与旧配置 / Python 版兼容，读写时一律归一为 system。
     /// </summary>
     [JsonPropertyName("ui_theme")] public string UiTheme { get; set; } = "system";
 
@@ -158,8 +160,8 @@ public sealed class AppSettings
         DayStartHour = Math.Clamp(DayStartHour, 0, 12);
         DailyGoal = Math.Clamp(DailyGoal, 1, 999);
 
-        // 主题取值只允许 system / dark / light
-        if (UiTheme is not ("dark" or "light")) UiTheme = "system";
+        // 界面主题固定跟随系统
+        UiTheme = "system";
 
         // 全局只用等宽字体：旧配置里的非等宽字体一律收敛到等宽
         FontFamily = Theme.CoerceMono(FontFamily);
@@ -309,39 +311,6 @@ public sealed class AppSettings
 
     /// <summary>清空全部 AI 台词缓存（不影响学习进度与外观设置），下次显示时重新请求。</summary>
     public void ClearAiQuotes() => AiQuotes.Clear();
-
-    /// <summary>
-    /// 把整体配色一键切到深色 / 浅色预设：界面主题 + 浮窗的文字、描边、提示框、台词高亮色。
-    /// 只改配色，不动字号 / 字体 / 透明度。两者一起切，保证卡片底色与文字颜色始终搭配。
-    /// </summary>
-    public void ApplyAppearancePreset(bool light)
-    {
-        UiTheme = light ? "light" : "dark";
-        if (light)
-        {
-            // 浅色底：文字用深色，描边用白色（浅底上的"外发光"），参考 Fluent 浅色强调色
-            TextColor = "#005FB8";
-            OutlineColor = "#FFFFFF";
-            MeanColor = "#1A1A1A";
-            MeanOutlineColor = "#FFFFFF";
-            PhonColor = "#005FB8";
-            PhonOutlineColor = "#FFFFFF";
-            HintColor = "#E5E5E5";
-            QuoteHlColor = "#B45309";
-        }
-        else
-        {
-            // 深色底：与程序默认值一致
-            TextColor = Theme.Accent;
-            OutlineColor = "#2B2B2B";
-            MeanColor = Theme.Accent;
-            MeanOutlineColor = "#1F1F1F";
-            PhonColor = Theme.Accent;
-            PhonOutlineColor = "#1F1F1F";
-            HintColor = Theme.BgSoft;
-            QuoteHlColor = "#FCE100";
-        }
-    }
 
     /// <summary>学习模式下打过卡：进入阶段 0（学习中），记录学习日期。已有进度则不覆盖。</summary>
     public void MarkLearned(string dict, string word)

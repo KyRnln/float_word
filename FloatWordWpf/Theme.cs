@@ -21,8 +21,6 @@ namespace FloatWordWpf;
 public static class Theme
 {
     public const string Bg = "#2B2B2B";
-    /// <summary>浅色主题下的卡片底色（卡片不透明时使用）。</summary>
-    public const string BgLight = "#F3F3F3";
     public const string BgSoft = "#323232";
     public const string Fg = "#FFFFFF";
     public const string FgSecondary = "#C5C5C5";
@@ -47,6 +45,13 @@ public static class Theme
     {
         "#2B2B2B", "#323232", "#3D3D3D", "#1F1F1F",
         "#60CDFF", "#FCE100", "#6CCB5F", "#FF99A4"
+    };
+
+    /// <summary>悬浮卡片背景色预设：深浅中性色 + 纯黑白，方便快速挑一个搭文字色。</summary>
+    public static readonly string[] BgPresets =
+    {
+        "#000000", "#1F1F1F", "#2B2B2B", "#323232",
+        "#3D3D3D", "#F3F3F3", "#FFFFFF", "#E5E5E5"
     };
 
     /// <summary>全项目统一使用的等宽字体族：Cascadia Mono 优先，逐级回退，任何 Windows 上都落在等宽字体上。</summary>

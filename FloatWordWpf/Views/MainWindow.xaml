@@ -42,8 +42,9 @@
                     Padding="20,14"
                     BorderThickness="0"
                     SnapsToDevicePixels="True">
-                <!-- VerticalAlignment=Center：常规模式下高度贴合内容（无影响）；全屏铺满时把内容垂直居中 -->
-                <StackPanel MinWidth="286" VerticalAlignment="Center">
+                <!-- Vertical/HorizontalAlignment=Center：常规模式尺寸贴合内容（无影响）；
+                     全屏铺满时把内容块居中，工具栏才会贴着内容而不是被拉到屏幕两端 -->
+                <StackPanel MinWidth="286" HorizontalAlignment="Center" VerticalAlignment="Center">
 
                     <!-- 工具栏：默认隐藏，鼠标移入才显示 -->
                     <Grid x:Name="Toolbar" Visibility="Collapsed" Margin="0,0,0,10">
@@ -75,7 +76,7 @@
                                        ToolTip="按住显示答案（用提示会清零该词的通过次数）">
                                 <TextBlock Text="提示" FontSize="13" VerticalAlignment="Center" />
                             </ui:Button>
-                            <ui:Button Appearance="Transparent" Width="32" Height="32" Padding="0"
+                            <ui:Button x:Name="FullscreenBtn" Appearance="Transparent" Width="32" Height="32" Padding="0"
                                        Margin="0,0,2,0" Click="OnFullscreenClick" ToolTip="全屏">
                                 <TextBlock Style="{StaticResource FluentIcon}" Text="&#xE740;" />
                             </ui:Button>

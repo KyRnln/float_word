@@ -44,6 +44,7 @@ public partial class MainWindow : Window
     private readonly PiperService _tts = new();
     private readonly DispatcherTimer _saveTimer;
     private readonly DispatcherTimer _toolbarTimer;
+    private readonly DispatcherTimer _fullscreenIdleTimer;   // 全屏：5 秒无鼠标移动就隐藏光标
 
     private SettingsWindow? _settingsWin;
     private int _dictIndex;
@@ -91,6 +92,10 @@ public partial class MainWindow : Window
 
         _toolbarTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(160) };
         _toolbarTimer.Tick += (_, _) => { _toolbarTimer.Stop(); MaybeHideToolbar(); };
+
+        // 全屏：5 秒没有任何鼠标移动就隐藏光标（并收起工具栏），移动鼠标立即恢复
+        _fullscreenIdleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        _fullscreenIdleTimer.Tick += (_, _) => { _fullscreenIdleTimer.Stop(); OnFullscreenIdle(); };
 
         // 窗口一移动就把屏幕坐标记进配置（含 WebDAV 备份）
         LocationChanged += OnWindowLocationChanged;
@@ -173,8 +178,8 @@ public partial class MainWindow : Window
     {
         // 卡片半透明用"颜色的 alpha"，文字透明度用元素 Opacity —— 两者互不影响。
         // 用 CardBrush 而非 Brush：背景透明度拉到 0 时仍保留命中测试，否则空白处拖不动窗口。
-        // 底色随界面主题走：浅色主题用浅色卡片，深色主题用深灰卡片。
-        Card.Background = Theme.CardBrush(AppTheme.IsLight ? Theme.BgLight : Theme.Bg, _s.BgAlpha / 100.0);
+        // 底色完全由「外观 → 其他」里的背景颜色 / 透明度决定，与界面深浅色无关。
+        Card.Background = Theme.CardBrush(_s.BgColor, _s.BgAlpha / 100.0);
 
         // Fluent 的层次感来自 elevation 阴影；背景全透明时阴影要一起淡出，
         // 否则会看到一圈"悬空的暗色矩形"。
@@ -241,7 +246,7 @@ public partial class MainWindow : Window
             CancelAiQuote();
         }
 
-        if (_s.ToolbarPinned && !_isFullscreen) SetToolbarVisible(true);
+        if (_s.ToolbarPinned) SetToolbarVisible(true);
 
         // 全屏时始终铺纯黑、无阴影（设置变更 / 主题切换不会破坏全屏观感）
         if (_isFullscreen)
@@ -1002,12 +1007,11 @@ public partial class MainWindow : Window
         _restoreTop = Top;
         _isFullscreen = true;
 
-        // 纯黑铺满：去掉阴影留白、圆角与投影，并收起常规工具栏
+        // 纯黑铺满：去掉阴影留白、圆角与投影
         OuterGrid.Margin = new Thickness(0);
         Card.CornerRadius = new CornerRadius(0);
         Card.Background = Theme.Brush("#000000");
         ShadowLayer.Opacity = 0;
-        Toolbar.Visibility = Visibility.Collapsed;
         ExitFullscreenBtn.Visibility = Visibility.Collapsed;
 
         // 固定尺寸铺满主屏：必须先切到 Manual，否则 Width/Height 会被 SizeToContent 忽略
@@ -1016,6 +1020,15 @@ public partial class MainWindow : Window
         Top = 0;
         Width = SystemParameters.PrimaryScreenWidth;
         Height = SystemParameters.PrimaryScreenHeight;
+
+        // 尺寸改完再更新工具栏状态（窗口尺寸变化可能触发 MouseLeave）
+        // 全屏改为「鼠标移入才显示工具栏」：进入时先收起，由鼠标移动事件负责显示
+        Toolbar.Visibility = Visibility.Collapsed;
+        FullscreenBtn.Visibility = Visibility.Collapsed;   // 已在全屏，工具栏里不再需要「全屏」按钮
+        SetToolbarInkLight(true);   // 纯黑底：工具栏按钮前景固定为浅色，避免浅色主题下深色图标看不见
+
+        _fullscreenIdleTimer.Stop();
+        _fullscreenIdleTimer.Start();   // 5 秒无鼠标移动 → 隐藏光标
     }
 
     private void ExitFullscreen()
@@ -1023,7 +1036,11 @@ public partial class MainWindow : Window
         if (!_isFullscreen) return;
         _isFullscreen = false;
 
+        _fullscreenIdleTimer.Stop();
+        Mouse.OverrideCursor = null;                    // 恢复光标
+        FullscreenBtn.Visibility = Visibility.Visible;  // 回到窗口模式，「全屏」按钮恢复
         ExitFullscreenBtn.Visibility = Visibility.Collapsed;
+        SetToolbarInkLight(false);   // 恢复按钮前景跟随主题
 
         // 还原阴影留白与圆角，回到「随内容自适应尺寸」（Width/Height 清回 auto，避免残留全屏尺寸）
         OuterGrid.Margin = new Thickness(28);
@@ -1042,10 +1059,18 @@ public partial class MainWindow : Window
         if (!_s.ToolbarPinned && IsMouseOver) SetToolbarVisible(true);
     }
 
-    /// <summary>全屏时鼠标移到屏幕顶部 → 显示「缩小（退出全屏）」图标；移开则隐藏。</summary>
+    /// <summary>
+    /// 全屏：鼠标一动就恢复光标、显示工具栏，并重置 5 秒空闲计时；
+    /// 顶部「缩小（退出全屏）」图标仍按鼠标位置显隐。
+    /// </summary>
     private void OnWindowMouseMove(object sender, MouseEventArgs e)
     {
         if (!_isFullscreen) return;
+
+        if (Mouse.OverrideCursor is not null) Mouse.OverrideCursor = null;   // 光标曾被隐藏 → 恢复
+        SetToolbarVisible(true);
+        _fullscreenIdleTimer.Stop();
+        _fullscreenIdleTimer.Start();
 
         bool nearTop = e.GetPosition(this).Y <= 64;
         var target = nearTop ? Visibility.Visible : Visibility.Collapsed;
@@ -1053,11 +1078,47 @@ public partial class MainWindow : Window
             ExitFullscreenBtn.Visibility = target;
     }
 
+    /// <summary>全屏下 5 秒没有任何鼠标移动：收起工具栏与「缩小」图标，并隐藏光标（移动鼠标即恢复）。</summary>
+    private void OnFullscreenIdle()
+    {
+        if (!_isFullscreen) return;
+        // 设置窗口开着时不隐藏光标：它是独立窗口，鼠标在其上的移动收不到本窗口的 MouseMove，会一直藏住光标
+        if (_settingsWin is { IsLoaded: true }) return;
+
+        SetToolbarVisible(false);
+        ExitFullscreenBtn.Visibility = Visibility.Collapsed;
+        Mouse.OverrideCursor = Cursors.None;
+    }
+
+    /// <summary>
+    /// 全屏是纯黑底：浅色系统主题下工具栏按钮是深色前景，在黑底上几乎看不见。
+    /// 全屏时把工具栏内所有按钮的前景临时固定为浅色，退出时清除（恢复跟随主题）。
+    /// </summary>
+    private void SetToolbarInkLight(bool light)
+    {
+        foreach (var d in Descendants(Toolbar))
+            if (d is System.Windows.Controls.Primitives.ButtonBase b)
+            {
+                if (light) b.Foreground = Brushes.White;
+                else b.ClearValue(System.Windows.Controls.Control.ForegroundProperty);
+            }
+    }
+
+    /// <summary>遍历逻辑树上的所有子元素（不依赖渲染，折叠状态下同样可用）。</summary>
+    private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
+    {
+        foreach (var child in LogicalTreeHelper.GetChildren(root))
+        {
+            if (child is not DependencyObject d) continue;
+            yield return d;
+            foreach (var g in Descendants(d)) yield return g;
+        }
+    }
+
     // ---------- 工具栏显示 / 隐藏 ----------
     private void OnWindowMouseEnter(object sender, MouseEventArgs e)
     {
-        if (_isFullscreen) return;   // 全屏下不显示常规工具栏
-        if (!_s.ToolbarPinned) SetToolbarVisible(true);
+        if (!_s.ToolbarPinned) SetToolbarVisible(true);   // 全屏下同样显示工具栏
     }
 
     private void OnWindowMouseLeave(object sender, MouseEventArgs e)
@@ -1071,6 +1132,7 @@ public partial class MainWindow : Window
 
     private void MaybeHideToolbar()
     {
+        if (_isFullscreen) return;   // 全屏下工具栏常驻（窗口铺满屏幕，鼠标不会离开）
         if (_s.ToolbarPinned || IsMouseOver) return;
         if (_settingsWin is { IsLoaded: true } w && w.IsMouseOver) return;
         SetToolbarVisible(false);
