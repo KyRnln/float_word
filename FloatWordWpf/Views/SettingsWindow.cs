@@ -164,7 +164,7 @@ public sealed class SettingsWindow : FluentWindow
         Group("单词", () =>
         {
             Choice("字体", Theme.FontChoices, () => _s.FontFamily, v => _s.FontFamily = v);
-            SliderRow("字号", 14, 72, () => _s.FontSize, v => _s.FontSize = v);
+            SliderRow("字号", 14, 150, () => _s.FontSize, v => _s.FontSize = v);
             Check("加粗", () => _s.FontBold, v => _s.FontBold = v);
             ColorRow("文字颜色", Theme.ColorPresets, () => _s.TextColor, v => _s.TextColor = v);
             SliderRow("描边宽度", 0, 8, () => _s.OutlineW, v => _s.OutlineW = v);
